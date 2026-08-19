@@ -43,11 +43,13 @@ The pipeline does these tasks:
 3. Each target selects one of two policies.
 4. The setup job seals the pool.
 5. The initial dispatcher leases all 590 initial attempts.
-6. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
+6. The dispatcher dynamically adds the consumer and verification jobs.
+7. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
    invocation.
-7. The dispatcher sends the results to Test Scheduler.
-8. One consumer job leases and runs retries.
-9. The verification job checks the final pool state and counts.
+8. The consumer polls Test Scheduler while the initial invocation runs.
+9. The dispatcher sends the initial results to Test Scheduler.
+10. The consumer leases and runs retries as soon as they are available.
+11. The verification job checks the final pool state and counts.
 
 ## Policies
 
@@ -120,29 +122,37 @@ attempts. The dispatcher normally uses one 300-attempt lease and one
 
 ## Build graph
 
-The setup job, initial dispatcher, and retry consumer run once. Buildkite can
-replace the retry consumer after a temporary failure. The verification job
-starts after the consumer succeeds.
+The static pipeline contains the population and initial dispatcher jobs. The
+dispatcher adds the consumer and verification jobs after it holds every initial
+lease. The consumer depends only on the `populate` step. It can therefore run
+at the same time as the initial dispatcher. The verification job depends on
+both jobs.
 
 ```mermaid
 flowchart LR
-    setup["Create and seal pool<br/>500 entries"]
+    populate["Create and seal pool<br/>500 entries"]
     initial["Dispatch initial attempts<br/>1 job · 590 executions"]
     retry["Consume retries<br/>1 job · 10 executions"]
     verify["Verify pool<br/>state and counts"]
 
-    setup --> initial
-    initial --> retry
+    populate --> initial
+    populate --> retry
+    initial --> verify
     retry --> verify
 ```
 
-One consumer can lease all ten retries in one request. Five consumers would
-not increase throughput for this workload. Buildkite automatic retries provide
+The dispatcher uses the Buildkite Python SDK to define the dynamic command
+steps. It sends the generated YAML to `buildkite-agent pipeline upload`. The
+consumer starts only after the dispatcher holds all initial work, so it cannot
+take an initial attempt during normal operation.
+
+One consumer can lease all ten retries in one request. Five consumers would not
+increase throughput for this workload. Buildkite automatic retries provide
 replacement capacity when the consumer cannot finish.
 
-The pipeline defines the `hosted` agent queue once at the top level. It also
-defines `BUILDBUDDY_API_KEY` once as a top-level secret. All command steps
-inherit these settings.
+The static pipeline defines the `hosted` agent queue and `BUILDBUDDY_API_KEY` at
+the top level. The SDK adds the same settings to the dynamic consumer. The
+verification job does not need the BuildBuddy secret.
 
 The pipeline also requests the `.buildkite/cache-volume` cache volume. On a
 Buildkite hosted agent, the mise plugin detects this volume and uses
@@ -157,6 +167,7 @@ sequenceDiagram
     participant S as Setup job
     participant TS as Test Scheduler
     participant D as Initial dispatcher
+    participant BK as Buildkite
     participant BB as BuildBuddy
     participant R as Retry consumer
     participant V as Verification job
@@ -169,11 +180,18 @@ sequenceDiagram
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
-    D->>+BB: Start 500 targets with 1 or 10 runs per target
-    loop Every 60 seconds while Bazel runs
-        D->>TS: Heartbeat all leases
+    D->>BK: Upload consumer and verification steps
+    BK->>R: Start consumer after populate
+    par Initial Bazel execution
+        D->>+BB: Start 500 targets with 1 or 10 runs per target
+        loop Every 60 seconds while Bazel runs
+            D->>TS: Heartbeat all leases
+        end
+        BB-->>-D: Return Build Event Protocol results
+    and Retry polling
+        R->>TS: Request a lease
+        TS-->>R: No work while dispatcher holds initial attempts
     end
-    BB-->>-D: Return Build Event Protocol results
     D->>TS: Complete 590 attempts
 
     TS->>TS: Evaluate each entry policy
@@ -236,17 +254,22 @@ receive Buildkite credentials or the BuildBuddy API key.
 
 ## Retry consumption
 
-The initial dispatcher finishes before the retry consumer starts. Test
-Scheduler evaluates the 500 entries after it receives the initial results. It
-creates ten retries for the ten entries that have no pass.
+The dispatcher uploads the retry consumer after it leases all 590 initial
+attempts. The consumer depends only on the `populate` step, so Buildkite can
+start it while the initial Bazel invocation runs. Its early lease requests
+return no work because the dispatcher holds every initial attempt.
+
+Test Scheduler evaluates the 500 entries after it receives the initial results.
+It creates ten retries for the ten entries that have no pass.
 
 The consumer waits for a lease. It can lease all ten retries in one request.
 It keeps polling until the pool is consumed.
 
-A consumer rejects an initial attempt. This check keeps the ownership boundary
-clear: the dispatcher owns initial attempts, and the consumer owns retries. A
-consumer groups leased attempts by attempt index because one Bazel invocation
-uses one `DEMO_ATTEMPT_INDEX` value.
+The consumer releases an initial attempt if it receives one. This case can occur
+when the dispatcher loses its agent and an initial lease expires. Releasing the
+lease lets the replacement dispatcher take the work. The consumer groups retry
+attempts by attempt index because one Bazel invocation uses one
+`DEMO_ATTEMPT_INDEX` value.
 
 The consumer polls every ten seconds when no work is available. It stops when
 the pool is consumed. It exits with status 75 after 90 empty or unavailable
@@ -265,6 +288,11 @@ attempts available again.
 The dispatcher checks the attempt index in each lease. A restarted dispatcher
 releases a lease if it contains policy-generated retries. This prevents the
 initial job from taking work that belongs to the retry consumer.
+
+A retried dispatcher checks whether the dynamic consumer already exists before
+it uploads the dynamic pipeline. This check prevents duplicate step keys. If an
+upload reports a connection failure, the dispatcher checks the build again
+before it treats the upload as failed.
 
 The demo does not reconnect to an existing BuildBuddy invocation. A retried
 dispatcher starts Bazel again. Bazel can use cached default results when they
@@ -296,6 +324,10 @@ uv creates the Python dependency lock. `rules_python` provides the Python
 toolchain and installs the locked packages for Bazel. A test action does not
 resolve packages from the network. This makes the Python test environment
 repeatable.
+
+The Buildkite Python SDK creates the retry consumer and verification command
+steps. The SDK serializes these typed objects to YAML. The Buildkite Agent then
+uploads the YAML to the current build.
 
 The pipeline gets `BUILDBUDDY_API_KEY` from a Buildkite cluster secret. The
 Test Scheduler client uses a short-lived Buildkite Agent OpenID Connect (OIDC)
@@ -330,7 +362,7 @@ uv run --frozen python <script>
 
 | File | Purpose |
 | --- | --- |
-| `.buildkite/pipeline.yml` | Defines the Buildkite graph. |
+| `.buildkite/pipeline.yml` | Defines pool population and initial dispatch. |
 | `.buildkite/setup_pool.py` | Creates, fills, and seals the pool. |
 | `.buildkite/dispatch_initial.py` | Leases and runs all initial attempts. |
 | `.buildkite/consume_pool.py` | Leases and runs policy-generated retries. |

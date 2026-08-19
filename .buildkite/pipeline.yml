@@ -9,7 +9,7 @@ cache: ".buildkite/cache-volume"
 
 steps:
   - label: ":test_tube: Create 500-target pool"
-    key: "setup"
+    key: "populate"
     command: mise run scheduler-setup
     plugins:
       - mise#v1.1.4:
@@ -18,35 +18,11 @@ steps:
   - label: ":bazel: Dispatch all initial targets"
     key: "dispatch-initial"
     command: mise run dispatch-initial
-    depends_on: "setup"
+    depends_on: "populate"
     retry:
       automatic:
         - exit_status: -1
           limit: 2
-    plugins:
-      - mise#v1.1.4:
-          version: 2026.7.6
-
-  - label: ":repeat: Consume retries"
-    key: "retry-consumer"
-    command: mise run scheduler-consume
-    depends_on: "dispatch-initial"
-    retry:
-      automatic:
-        # Buildkite uses -1 when it loses contact with the agent.
-        - exit_status: -1
-          limit: 2
-        # The consumer uses 75 when the pool may become drainable later.
-        - exit_status: 75
-          limit: 2
-    plugins:
-      - mise#v1.1.4:
-          version: 2026.7.6
-
-  - label: ":white_check_mark: Verify scheduling policy"
-    key: "verify"
-    command: mise run scheduler-verify
-    depends_on: "retry-consumer"
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6

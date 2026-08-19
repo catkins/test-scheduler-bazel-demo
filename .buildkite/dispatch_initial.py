@@ -8,6 +8,13 @@ import subprocess
 import threading
 import time
 
+from buildkite_sdk import (
+    AutomaticRetry,
+    CommandStep,
+    CommandStepRetry,
+    Pipeline,
+)
+
 import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
@@ -36,6 +43,71 @@ def initial_attempts_for(label: str) -> int:
     if target_index(label) >= QUALIFICATION_START:
         return QUALIFICATION_INITIAL_ATTEMPTS
     return DEFAULT_INITIAL_ATTEMPTS
+
+
+def step_exists(key: str) -> bool:
+    """Return whether a previous dispatcher attempt uploaded the step."""
+    result = subprocess.run(
+        ["buildkite-agent", "step", "get", "state", "--step", key],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+def dynamic_pipeline() -> Pipeline:
+    """Define the retry consumer and final verification steps."""
+    mise_plugin = [{"mise#v1.1.4": {"version": "2026.7.6"}}]
+    retry_consumer = CommandStep(
+        label=":repeat: Consume retries",
+        key="retry-consumer",
+        command="mise run scheduler-consume",
+        # Population has sealed the pool, and the dispatcher now holds every
+        # initial attempt. Do not wait for the dispatcher job to finish.
+        depends_on="populate",
+        agents={"queue": "hosted"},
+        secrets=["BUILDBUDDY_API_KEY"],
+        cache=".buildkite/cache-volume",
+        retry=CommandStepRetry(
+            automatic=[
+                AutomaticRetry(exit_status=-1, limit=2),
+                AutomaticRetry(exit_status=75, limit=2),
+            ]
+        ),
+        plugins=mise_plugin,
+    )
+    verify = CommandStep(
+        label=":white_check_mark: Verify scheduling policy",
+        key="verify",
+        command="mise run scheduler-verify",
+        depends_on=["dispatch-initial", "retry-consumer"],
+        agents={"queue": "hosted"},
+        cache=".buildkite/cache-volume",
+        plugins=mise_plugin,
+    )
+    return Pipeline(steps=[retry_consumer, verify])
+
+
+def upload_retry_pipeline() -> None:
+    """Upload the retry consumer and final verification steps once."""
+    if step_exists("retry-consumer"):
+        print("Retry consumer already exists; skipping dynamic pipeline upload")
+        return
+
+    result = subprocess.run(
+        ["buildkite-agent", "pipeline", "upload"],
+        input=dynamic_pipeline().to_yaml(sort_keys=False),
+        check=False,
+        text=True,
+    )
+    # The upload result can be unknown after a connection failure. Check the
+    # build before treating a nonzero agent result as a failed upload.
+    if result.returncode != 0 and not step_exists("retry-consumer"):
+        raise subprocess.CalledProcessError(
+            result.returncode, ["buildkite-agent", "pipeline", "upload"]
+        )
+    print("Uploaded retry consumer and verification steps")
 
 
 def read_bep(path: Path) -> dict[tuple[str, int], str]:
@@ -137,6 +209,10 @@ def main() -> None:
     labels = sorted({attempt["selector"] for attempt in attempts})
     if len(labels) != TARGET_COUNT:
         raise RuntimeError(f"Expected {TARGET_COUNT} distinct targets, got {len(labels)}")
+
+    # Upload only after the lease barrier. The consumer can now run in parallel
+    # without taking initial attempts from the dispatcher.
+    upload_retry_pipeline()
 
     stop = threading.Event()
     heartbeat_errors: list[Exception] = []

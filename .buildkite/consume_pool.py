@@ -114,13 +114,27 @@ def main() -> None:
 
         empty_polls = 0
         attempts = lease["attempts"]
-        # The dispatcher must finish every initial attempt before this step.
-        # Fail if a retry consumer crosses that ownership boundary.
+        # A replacement dispatcher and this consumer can race after abandoned
+        # initial leases expire. Return initial work to preserve ownership.
         if any(
             attempt["attempt_index"] < initial_attempts_for(attempt)
             for attempt in attempts
         ):
-            raise RuntimeError("Retry consumer received an unfinished initial attempt")
+            request(
+                "POST",
+                f"/pools/{pool_id}/leases/release",
+                {
+                    "leases": [
+                        {
+                            "id": lease["id"],
+                            "reason": "initial attempt belongs to dispatcher",
+                        }
+                    ]
+                },
+            )
+            print("Released initial work for the replacement dispatcher")
+            time.sleep(10)
+            continue
         print(f"Leased {len(attempts)} retry targets")
 
         all_statuses: dict[str, str] = {}
