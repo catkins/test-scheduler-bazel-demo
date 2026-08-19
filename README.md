@@ -98,11 +98,11 @@ sequenceDiagram
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
-    loop While Bazel runs
+    D->>+BB: Start 100 targets with 5 or 10 runs per target
+    loop Every 60 seconds while Bazel runs
         D->>TS: Heartbeat all leases
     end
-    D->>BB: Run 100 targets with 5 or 10 runs per target
-    BB-->>D: Return Build Event Protocol results
+    BB-->>-D: Return Build Event Protocol results
     D->>TS: Complete 550 attempts
 
     TS->>TS: Evaluate each entry policy
@@ -121,6 +121,11 @@ sequenceDiagram
 ```
 
 ## Bazel execution
+
+The dispatcher requests initial leases sequentially. Each request can return up
+to 300 attempts. The dispatcher does not start Bazel until it holds all 550
+initial attempts. This loop drains only the initial queue. Test Scheduler
+creates retries after it receives the initial results.
 
 The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=5`
 for the `default` targets. It uses `--runs_per_test=10` for the
