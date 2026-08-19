@@ -1,10 +1,17 @@
 """Shared Bazel command configuration."""
 
 import os
+from pathlib import Path
 
 
 def command() -> list[str]:
-    args = ["bazelisk", "test"]
+    compiler = Path(__file__).parent.parent / "tools/cc.py"
+    args = [
+        "bazelisk",
+        "test",
+        f"--repo_env=CC={compiler}",
+        "--@rules_python//python/config_settings:bootstrap_impl=script",
+    ]
     api_key = os.environ.get("BUILDBUDDY_API_KEY")
     if api_key:
         args.extend(

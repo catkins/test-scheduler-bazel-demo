@@ -19,7 +19,9 @@ The pipeline:
    metrics.
 
 The pipeline uses the Buildkite mise plugin to install Bazelisk, Python, and
-uv. Each Bazel target runs a distinct pytest test with a hermetic Python
+uv. It also installs Zig to satisfy the optional C++ toolchain resolution that
+`rules_python` performs during analysis; these pure-Python tests do not compile
+C++. Each Bazel target runs a distinct pytest test with a hermetic Python
 toolchain and dependencies managed by `rules_python`. Each test sleeps for 10
 ms. Every tenth target intentionally fails its first initial
 attempt and passes its other four. The five-pass policy gives those targets one
