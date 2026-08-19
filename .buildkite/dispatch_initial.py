@@ -38,24 +38,6 @@ def initial_attempts_for(label: str) -> int:
     return DEFAULT_INITIAL_ATTEMPTS
 
 
-def completion_batches(completions: list[dict]) -> list[list[dict]]:
-    """Group whole leases without exceeding the completion API limit."""
-    batches: list[list[dict]] = []
-    batch: list[dict] = []
-    attempt_count = 0
-    for completion in completions:
-        lease_attempt_count = len(completion["attempts"])
-        if batch and attempt_count + lease_attempt_count > COMPLETION_MAX_ATTEMPTS:
-            batches.append(batch)
-            batch = []
-            attempt_count = 0
-        batch.append(completion)
-        attempt_count += lease_attempt_count
-    if batch:
-        batches.append(batch)
-    return batches
-
-
 def read_bep(path: Path) -> dict[tuple[str, int], str]:
     """Map each Bazel label and zero-based run index to its result."""
     statuses: dict[tuple[str, int], str] = {}
@@ -93,6 +75,11 @@ def heartbeat(
 
 
 def main() -> None:
+    if EXPECTED_ATTEMPTS > COMPLETION_MAX_ATTEMPTS:
+        raise RuntimeError(
+            f"Initial workload exceeds the {COMPLETION_MAX_ATTEMPTS}-attempt "
+            "completion request limit"
+        )
     configure_auth()
     pool_id = metadata("get")
     leases = []
@@ -179,9 +166,10 @@ def main() -> None:
             bazel.command()
             + [
                 f"--jobs={jobs}",
-                # Bazel's default auto mode ignores cached test results when
-                # runs_per_test is greater than one. Force cache use here.
-                "--cache_test_results=yes",
+                # Auto keeps one-run default targets cacheable. It disables
+                # cache use for ten-run qualification targets so that every
+                # qualification attempt is an independent execution.
+                "--cache_test_results=auto",
                 f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
                 "--runs_per_test=//demo:target_49[0-9]@10",
                 "--test_output=errors",
@@ -225,17 +213,13 @@ def main() -> None:
         }
         for lease in leases
     ]
-    # The current 590-attempt workload fits in one request. Keep batching so a
-    # larger workload still respects the 5,000-attempt API limit.
-    for batch_number, batch in enumerate(completion_batches(completions), start=1):
-        batch_attempt_count = sum(len(completion["attempts"]) for completion in batch)
-        request(
-            "POST", f"/pools/{pool_id}/leases/complete", {"leases": batch}
-        )
-        print(
-            f"Completed initial result batch {batch_number}: "
-            f"{batch_attempt_count} attempts"
-        )
+    # Complete all initial leases atomically from this client's perspective.
+    # Splitting this call would make restart recovery ambiguous if the job died
+    # after only some completion batches reached Test Scheduler.
+    request(
+        "POST", f"/pools/{pool_id}/leases/complete", {"leases": completions}
+    )
+    print(f"Completed initial result batch: {len(attempts)} attempts")
     passed = sum(status == "PASSED" for status in statuses.values())
     print(
         f"Bazel exit={result.returncode}; completed {EXPECTED_ATTEMPTS} "

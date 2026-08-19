@@ -205,15 +205,17 @@ for the `default` targets. It uses `--runs_per_test=10` for the
 `qualification` targets. It sets `--jobs=590` so that Bazel can submit all
 initial actions without a small local concurrency limit.
 
-Initial runs use `--cache_test_results=yes`. This setting lets Bazel use cached
-results when `--runs_per_test` requests multiple runs. Retry runs use
-`--nocache_test_results`. This setting makes each retry execute again.
+Initial runs use `--cache_test_results=auto`. The 490 default targets run once,
+so their initial results can come from the cache. The ten qualification targets
+run ten times. Bazel auto mode does not use cached test results when
+`--runs_per_test` is greater than one. Each qualification attempt is therefore
+an independent execution. Retry runs use `--nocache_test_results`, so each
+retry also executes again.
 
-A cached initial result still produces a Build Event Protocol result. The
+A cached default result still produces a Build Event Protocol result. The
 dispatcher can therefore complete the matching Test Scheduler attempt whether
-BuildBuddy executes the action or returns a cached result. A cold cache still
-requires remote execution for all initial actions. A cold cache has no stored
-result for the requested action.
+BuildBuddy executes the action or returns a cached result. Qualification and
+retry results do not use the test-result cache.
 
 The dispatcher reads the Bazel Build Event Protocol file. It matches each
 result to a Test Scheduler attempt. The dispatcher sends all 590 initial
@@ -224,8 +226,10 @@ dispatcher subtracts one from each Bazel run number before it matches a result.
 It stops without completing leases if any expected result is missing.
 
 The completion client keeps all attempts from one lease in the same request.
-It can split a larger workload into requests of at most 5,000 attempts. The
-current workload needs only one completion request.
+The current 590-attempt workload needs one completion request and stays below
+the 5,000-attempt API limit. The dispatcher fails before it leases work if a
+future workload exceeds this limit. It does not send a partial completion that
+a replacement job cannot reconcile.
 
 The Buildkite job owns the Test Scheduler leases. Remote Bazel actions do not
 receive Buildkite credentials or the BuildBuddy API key.
@@ -263,8 +267,8 @@ releases a lease if it contains policy-generated retries. This prevents the
 initial job from taking work that belongs to the retry consumer.
 
 The demo does not reconnect to an existing BuildBuddy invocation. A retried
-dispatcher starts Bazel again. Bazel can use cached results when they are
-available.
+dispatcher starts Bazel again. Bazel can use cached default results when they
+are available. It executes qualification attempts again.
 
 If the retry consumer loses its agent, Buildkite records exit status -1 and
 starts a replacement job. If the consumer reaches its polling limit or a
