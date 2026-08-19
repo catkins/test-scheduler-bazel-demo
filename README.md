@@ -130,6 +130,14 @@ lease. The consumer depends only on the `populate` step. It can therefore run
 at the same time as the initial dispatcher. The verification job depends on
 both jobs.
 
+The consumer has an explicit [`depends_on`](https://buildkite.com/docs/pipelines/configure/dependencies)
+value of `populate`. This value is important because the dispatcher uploads the
+consumer while `dispatch-initial` is running. Without the explicit dependency,
+the uploaded consumer would inherit a dependency on `dispatch-initial`. It
+would wait for the complete initial Bazel invocation and could not poll for
+retries in parallel. The explicit edge also makes this parallel structure clear
+on the Buildkite build canvas.
+
 ```mermaid
 flowchart LR
     populate["Create and seal pool<br/>600 entries"]
