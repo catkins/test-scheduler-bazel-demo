@@ -12,9 +12,25 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
-INITIAL_ATTEMPTS = 5
 TARGET_COUNT = 1_000
-EXPECTED_ATTEMPTS = INITIAL_ATTEMPTS * TARGET_COUNT
+DEFAULT_INITIAL_ATTEMPTS = 5
+QUALIFICATION_INITIAL_ATTEMPTS = 10
+QUALIFICATION_START = 900
+QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
+EXPECTED_ATTEMPTS = (
+    QUALIFICATION_START * DEFAULT_INITIAL_ATTEMPTS
+    + QUALIFICATION_TARGET_COUNT * QUALIFICATION_INITIAL_ATTEMPTS
+)
+
+
+def target_index(label: str) -> int:
+    return int(label.rsplit("_", 1)[1])
+
+
+def initial_attempts_for(label: str) -> int:
+    if target_index(label) >= QUALIFICATION_START:
+        return QUALIFICATION_INITIAL_ATTEMPTS
+    return DEFAULT_INITIAL_ATTEMPTS
 
 
 def read_bep(path: Path) -> dict[tuple[str, int], str]:
@@ -71,7 +87,7 @@ def main() -> None:
             time.sleep(5)
             continue
         if any(
-            attempt["attempt_index"] >= INITIAL_ATTEMPTS
+            attempt["attempt_index"] >= initial_attempts_for(attempt["selector"])
             for attempt in lease["attempts"]
         ):
             request(
@@ -122,13 +138,16 @@ def main() -> None:
         jobs = EXPECTED_ATTEMPTS if os.environ.get("BUILDBUDDY_API_KEY") else 20
         print(
             f"Sending all {TARGET_COUNT} targets to one Bazel invocation with "
-            f"--runs_per_test={INITIAL_ATTEMPTS} and --jobs={jobs}"
+            f"{DEFAULT_INITIAL_ATTEMPTS} default runs and "
+            f"{QUALIFICATION_INITIAL_ATTEMPTS} qualification runs per target, "
+            f"using --jobs={jobs}"
         )
         result = subprocess.run(
             bazel.command()
             + [
                 f"--jobs={jobs}",
-                f"--runs_per_test={INITIAL_ATTEMPTS}",
+                f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
+                "--runs_per_test=//demo:target_9[0-9][0-9]@10",
                 "--test_output=errors",
                 f"--build_event_json_file={bep}",
                 *labels,

@@ -10,7 +10,7 @@ def _test_target(index: int) -> None:
     )
     time.sleep(0.01)
 
-    assert index % 10 != 0 or attempt > 0, (
+    assert index >= 900 or index % 9 != 0 or attempt > 0, (
         f"target {index} intentionally fails scheduler attempt {attempt}"
     )
 

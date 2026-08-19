@@ -7,6 +7,7 @@ from test_scheduler_client import SUITE, configure_auth, metadata, request
 
 
 TARGET_COUNT = 1_000
+QUALIFICATION_START = 900
 
 
 def main() -> None:
@@ -22,13 +23,24 @@ def main() -> None:
             "ttl_seconds": 3_600,
             "lease": {"costs": {"custom": 300}, "max_attempts": 300},
             "attempt_policy": {
-                "max_attempts": 6,
-                "max_failed": 2,
-                "max_passed": 5,
-                "min_attempts": 5,
-                "min_passed": 5,
-                "parallel_attempts": 5,
-                "initial_attempts": 5,
+                "default": {
+                    "max_attempts": 6,
+                    "max_failed": 2,
+                    "max_passed": 5,
+                    "min_attempts": 5,
+                    "min_passed": 5,
+                    "parallel_attempts": 5,
+                    "initial_attempts": 5,
+                },
+                "qualification": {
+                    "max_attempts": 10,
+                    "max_failed": 1,
+                    "max_passed": 10,
+                    "min_attempts": 10,
+                    "min_passed": 10,
+                    "parallel_attempts": 10,
+                    "initial_attempts": 10,
+                },
             },
         },
     )
@@ -43,7 +55,16 @@ def main() -> None:
                 "selector": f"//demo:target_{index}",
                 "costs": {"custom": 1},
                 "priority": 0,
-                "meta_data": {"framework": "bazel", "demo": "customer-local-bazel"},
+                "attempt_policy": (
+                    "qualification" if index >= QUALIFICATION_START else "default"
+                ),
+                "meta_data": {
+                    "framework": "bazel",
+                    "demo": "customer-local-bazel",
+                    "attempt_policy": (
+                        "qualification" if index >= QUALIFICATION_START else "default"
+                    ),
+                },
             }
             for index in range(start, start + 100)
         ]
