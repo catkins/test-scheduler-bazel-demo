@@ -4,6 +4,9 @@ agents:
 secrets:
   - BUILDBUDDY_API_KEY
 
+# This cache volume lets the mise plugin reuse downloaded tools on hosted agents.
+cache: ".buildkite/cache-volume"
+
 steps:
   - label: ":test_tube: Create 100-target pool"
     key: "setup"

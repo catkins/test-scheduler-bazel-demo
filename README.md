@@ -156,6 +156,12 @@ The pipeline defines the `hosted` agent queue once at the top level. It also
 defines `BUILDBUDDY_API_KEY` once as a top-level secret. All command steps
 inherit these settings.
 
+The pipeline also requests the `.buildkite/cache-volume` cache volume. On a
+Buildkite hosted agent, the mise plugin detects this volume and uses
+`/cache/bkcache/mise` as `MISE_DATA_DIR`. Parallel jobs can reuse downloaded
+mise tools from this shared directory. The plugin stages downloads and moves
+them into place atomically, so concurrent jobs can safely share the cache.
+
 ## Request sequence
 
 ```mermaid
