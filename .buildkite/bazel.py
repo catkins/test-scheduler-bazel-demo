@@ -6,10 +6,12 @@ from pathlib import Path
 
 def command() -> list[str]:
     compiler = Path(__file__).parent.parent / "tools/cc.py"
+    archiver = Path(__file__).parent.parent / "tools/ar.py"
     args = [
         "bazelisk",
         "test",
         f"--repo_env=CC={compiler}",
+        f"--repo_env=AR={archiver}",
         "--@rules_python//python/config_settings:bootstrap_impl=script",
     ]
     api_key = os.environ.get("BUILDBUDDY_API_KEY")
