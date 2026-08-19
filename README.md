@@ -2,7 +2,7 @@
 
 This repository shows how Buildkite Test Scheduler can control a large Bazel
 test workload. The example uses BuildBuddy for Bazel Remote Execution. It
-models the workflow that customer uses with EngFlow.
+models a large remote-execution workflow.
 
 The demo has 1,000 Bazel targets. Each target runs one pytest test. Each test
 sleeps for 10 ms and then passes or fails.

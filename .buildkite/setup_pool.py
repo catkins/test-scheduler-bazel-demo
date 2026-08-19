@@ -60,7 +60,7 @@ def main() -> None:
                 ),
                 "meta_data": {
                     "framework": "bazel",
-                    "demo": "customer-local-bazel",
+                    "demo": "test-scheduler-bazel",
                     "attempt_policy": (
                         "qualification" if index >= QUALIFICATION_START else "default"
                     ),
