@@ -62,6 +62,8 @@ def request(method: str, path: str, body: object | None = None) -> object:
         json=body,
         timeout=30,
     )
+    if not response.is_success:
+        print(response.text, file=sys.stderr)
     response.raise_for_status()
     return response.json() if response.content else None
 

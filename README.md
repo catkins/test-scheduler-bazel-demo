@@ -22,7 +22,9 @@ environment and uploads its result with `buildkite-test-collector`. Each test
 sleeps for 10 ms. Every tenth target intentionally fails its first initial
 attempt and passes its other four. The five-pass policy gives those targets one
 retry. This produces 5,000 initial attempts and 100 policy-generated retries,
-while keeping the workload deterministic.
+while keeping the workload deterministic. The scheduler also materializes and
+cancels 900 speculative sixth attempts as the five parallel initial results
+arrive; those attempts are never leased or executed.
 
 Test Engine and Test Scheduler both authenticate with the same short-lived
 Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`

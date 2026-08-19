@@ -9,7 +9,9 @@ from test_scheduler_client import configure_auth, metadata, request
 TARGET_COUNT = 1_000
 INITIAL_ATTEMPTS = 5
 EXPECTED_FAILURES = 100
-EXPECTED_ATTEMPTS = TARGET_COUNT * INITIAL_ATTEMPTS + EXPECTED_FAILURES
+EXPECTED_EXECUTIONS = TARGET_COUNT * INITIAL_ATTEMPTS + EXPECTED_FAILURES
+EXPECTED_MATERIALIZED_ATTEMPTS = TARGET_COUNT * 6
+EXPECTED_CANCELED_ATTEMPTS = TARGET_COUNT - EXPECTED_FAILURES
 EXPECTED_PASSES = TARGET_COUNT * INITIAL_ATTEMPTS
 
 
@@ -24,9 +26,12 @@ def main() -> None:
         "pool is consumed": metrics["pool"]["state"] == "consumed",
         "pool is drained": metrics["pool"]["drained"],
         "entry count": metrics["entries"]["total"] == TARGET_COUNT,
-        "attempt count": attempts["total"] == EXPECTED_ATTEMPTS,
+        "attempt count": attempts["total"] == EXPECTED_MATERIALIZED_ATTEMPTS,
         "completed count": (
-            attempts["states"]["completed"]["count"] == EXPECTED_ATTEMPTS
+            attempts["states"]["completed"]["count"] == EXPECTED_EXECUTIONS
+        ),
+        "canceled count": (
+            attempts["states"]["canceled"]["count"] == EXPECTED_CANCELED_ATTEMPTS
         ),
         "waiting count": attempts["states"]["waiting"]["count"] == 0,
         "leased count": attempts["states"]["leased"]["count"] == 0,
@@ -39,6 +44,10 @@ def main() -> None:
     print(
         f"Verified {TARGET_COUNT * INITIAL_ATTEMPTS} initial attempts and "
         f"{EXPECTED_FAILURES} policy-generated retries"
+    )
+    print(
+        f"Verified {EXPECTED_EXECUTIONS} completed executions and "
+        f"{EXPECTED_CANCELED_ATTEMPTS} canceled speculative attempts"
     )
     print(
         f"Verified final results: {EXPECTED_PASSES} passed attempts, "

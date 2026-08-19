@@ -27,7 +27,7 @@ def main() -> None:
                 "max_passed": 5,
                 "min_attempts": 5,
                 "min_passed": 5,
-                "parallel_attempts": 1,
+                "parallel_attempts": 5,
                 "initial_attempts": 5,
             },
         },
