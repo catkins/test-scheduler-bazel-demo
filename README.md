@@ -202,8 +202,3 @@ mise run lock-bazel
 
 This command exports the uv lock data to `requirements_lock.txt`.
 `rules_python` uses this file for the Bazel dependency lock.
-
-## Buildkite resources
-
-- [Pipeline](https://buildkite.com/catkins-test/test-scheduler-bazel-demo)
-- [Test Engine suite](https://buildkite.com/organizations/catkins-test/analytics/suites/test-scheduler-bazel-demo)
