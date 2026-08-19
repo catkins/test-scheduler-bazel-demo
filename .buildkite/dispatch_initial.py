@@ -17,6 +17,7 @@ DEFAULT_INITIAL_ATTEMPTS = 5
 QUALIFICATION_INITIAL_ATTEMPTS = 10
 QUALIFICATION_START = 900
 QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
+COMPLETION_MAX_ATTEMPTS = 5_000
 EXPECTED_ATTEMPTS = (
     QUALIFICATION_START * DEFAULT_INITIAL_ATTEMPTS
     + QUALIFICATION_TARGET_COUNT * QUALIFICATION_INITIAL_ATTEMPTS
@@ -31,6 +32,23 @@ def initial_attempts_for(label: str) -> int:
     if target_index(label) >= QUALIFICATION_START:
         return QUALIFICATION_INITIAL_ATTEMPTS
     return DEFAULT_INITIAL_ATTEMPTS
+
+
+def completion_batches(completions: list[dict]) -> list[list[dict]]:
+    batches: list[list[dict]] = []
+    batch: list[dict] = []
+    attempt_count = 0
+    for completion in completions:
+        lease_attempt_count = len(completion["attempts"])
+        if batch and attempt_count + lease_attempt_count > COMPLETION_MAX_ATTEMPTS:
+            batches.append(batch)
+            batch = []
+            attempt_count = 0
+        batch.append(completion)
+        attempt_count += lease_attempt_count
+    if batch:
+        batches.append(batch)
+    return batches
 
 
 def read_bep(path: Path) -> dict[tuple[str, int], str]:
@@ -187,12 +205,18 @@ def main() -> None:
         }
         for lease in leases
     ]
-    request(
-        "POST", f"/pools/{pool_id}/leases/complete", {"leases": completions}
-    )
+    for batch_number, batch in enumerate(completion_batches(completions), start=1):
+        batch_attempt_count = sum(len(completion["attempts"]) for completion in batch)
+        request(
+            "POST", f"/pools/{pool_id}/leases/complete", {"leases": batch}
+        )
+        print(
+            f"Completed initial result batch {batch_number}: "
+            f"{batch_attempt_count} attempts"
+        )
     passed = sum(status == "PASSED" for status in statuses.values())
     print(
-        f"Bazel exit={result.returncode}; atomically completed {EXPECTED_ATTEMPTS} "
+        f"Bazel exit={result.returncode}; completed {EXPECTED_ATTEMPTS} "
         f"attempts: passed={passed}, failed={EXPECTED_ATTEMPTS - passed}"
     )
 

@@ -29,9 +29,9 @@ ms. One hundred default-policy targets intentionally fail their first initial
 attempt and pass their other four, so the five-pass policy gives each one a
 retry. The 100 qualification targets must pass ten out of ten executions. This
 produces 5,500 initial attempts and 100 policy-generated retries while keeping
-the workload deterministic. The coordinator completes all initial leases
-atomically after the full-target Bazel invocation finishes. If its agent is
-lost, Buildkite retries the job and expired leases return to the pool.
+the workload deterministic. The coordinator reports the initial leases in
+API-sized batches after the full-target Bazel invocation finishes. If its agent
+is lost, Buildkite retries the job and expired leases return to the pool.
 
 Test Engine and Test Scheduler both authenticate with the same short-lived
 Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`
