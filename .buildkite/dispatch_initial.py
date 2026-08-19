@@ -4,10 +4,10 @@
 import json
 from pathlib import Path
 import subprocess
-import sys
 import threading
 import time
 
+import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
@@ -123,21 +123,11 @@ def main() -> None:
             f"--runs_per_test={INITIAL_ATTEMPTS}"
         )
         result = subprocess.run(
-            [
-                "bazelisk",
-                "test",
+            bazel.command()
+            + [
                 "--jobs=20",
                 f"--runs_per_test={INITIAL_ATTEMPTS}",
                 "--test_output=errors",
-                f"--test_env=PYTHON_BIN={sys.executable}",
-                "--test_env=BUILDKITE_ANALYTICS_TOKEN",
-                "--test_env=BUILDKITE_BRANCH",
-                "--test_env=BUILDKITE_BUILD_ID",
-                "--test_env=BUILDKITE_BUILD_NUMBER",
-                "--test_env=BUILDKITE_BUILD_URL",
-                "--test_env=BUILDKITE_COMMIT",
-                "--test_env=BUILDKITE_JOB_ID",
-                "--test_env=BUILDKITE_PIPELINE_SLUG",
                 f"--build_event_json_file={bep}",
                 *labels,
             ],

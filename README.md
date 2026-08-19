@@ -19,9 +19,9 @@ The pipeline:
    metrics.
 
 The pipeline uses the Buildkite mise plugin to install Bazelisk, Python, and
-uv. Each Bazel target runs a distinct pytest test through uv's virtual
-environment and uploads its result with `buildkite-test-collector`. Each test
-sleeps for 10 ms. Every tenth target intentionally fails its first initial
+uv. Each Bazel target runs a distinct pytest test with a hermetic Python
+toolchain and dependencies managed by `rules_python`. Each test sleeps for 10
+ms. Every tenth target intentionally fails its first initial
 attempt and passes its other four. The five-pass policy gives those targets one
 retry. This produces 5,000 initial attempts and 100 policy-generated retries,
 while keeping the workload deterministic. The coordinator completes all initial
@@ -35,11 +35,18 @@ All pipeline orchestration and Bazel test launchers are Python. Pipeline steps
 run mise tasks, which invoke them through `uv run --frozen python ...` in the
 mise-managed tool environment.
 
-The example uses local Bazel execution. It models the orchestration intended
-for customer's Bazel remote execution integration: a setup job populates and
-seals the pool, one coordinator sends the full target set to Bazel, and five
-simple retry consumers drain only policy-generated failures. It does not
-configure EngFlow or a remote cache.
+The execution steps read `BUILDBUDDY_API_KEY` from a Buildkite cluster secret
+and use BuildBuddy's remote execution and cache endpoints. The Bazel actions do
+not receive Buildkite or BuildBuddy credentials: the Buildkite coordinator
+holds the scheduler leases, sends actions through Bazel, parses the resulting
+BEP file, and reports completions. This models customer's EngFlow integration:
+a setup job populates and seals the pool, one coordinator sends the full target
+set to Bazel Remote Execution, and five simple retry consumers drain only
+policy-generated failures.
+
+After changing Python dependencies, run `mise run lock-bazel` to export the
+committed uv lock into the hashed requirements file consumed by
+`rules_python`. The pipeline never resolves dependencies during a test action.
 
 ## Buildkite resources
 

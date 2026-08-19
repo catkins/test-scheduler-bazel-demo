@@ -12,6 +12,8 @@ steps:
     key: "dispatch-initial"
     command: mise run dispatch-initial
     depends_on: "setup"
+    secrets:
+      - BUILDBUDDY_API_KEY
     retry:
       automatic:
         - exit_status: -1
@@ -27,6 +29,8 @@ steps:
     command: mise run scheduler-consume
     depends_on: "dispatch-initial"
     parallelism: 5
+    secrets:
+      - BUILDBUDDY_API_KEY
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6

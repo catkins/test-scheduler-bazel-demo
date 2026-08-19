@@ -5,11 +5,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import time
 
 import httpx
 
+import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
@@ -32,20 +32,9 @@ def run_attempts(
 ) -> tuple[int, dict[str, str]]:
     invocation += 1
     bep = Path(f"bep-runner-{worker}-{invocation}.json")
-    args = [
-        "bazelisk",
-        "test",
+    args = bazel.command() + [
         "--test_output=errors",
         f"--test_env=DEMO_ATTEMPT_INDEX={attempt_index}",
-        f"--test_env=PYTHON_BIN={sys.executable}",
-        "--test_env=BUILDKITE_ANALYTICS_TOKEN",
-        "--test_env=BUILDKITE_BRANCH",
-        "--test_env=BUILDKITE_BUILD_ID",
-        "--test_env=BUILDKITE_BUILD_NUMBER",
-        "--test_env=BUILDKITE_BUILD_URL",
-        "--test_env=BUILDKITE_COMMIT",
-        "--test_env=BUILDKITE_JOB_ID",
-        "--test_env=BUILDKITE_PIPELINE_SLUG",
         f"--build_event_json_file={bep}",
     ]
     kind = "INITIAL"

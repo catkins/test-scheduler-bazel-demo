@@ -1,9 +1,16 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
 [
-    sh_test(
+    py_test(
         name = "target_%d" % index,
-        srcs = ["test_runner.py"],
+        srcs = [
+            "test_demo.py",
+            "test_runner.py",
+        ],
+        main = "test_runner.py",
         args = [str(index)],
-        data = ["test_demo.py"],
+        deps = ["@demo_pypi//pytest"],
+        legacy_create_init = 0,
     )
     for index in range(1000)
 ]
