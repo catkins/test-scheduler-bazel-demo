@@ -1,21 +1,36 @@
 steps:
   - label: ":test-engine: Create 1,000-target pool"
     key: "setup"
-    command: ".buildkite/run-demo.sh setup"
+    command: |
+      uv sync --frozen
+      .buildkite/run-demo.sh setup
+    plugins:
+      - mise#v1.1.4:
+          version: 2026.7.6
     agents:
       queue: "hosted"
 
   - label: ":bazel: Scheduler runner %n"
     key: "scheduler-runners"
-    command: ".buildkite/run-demo.sh consume"
+    command: |
+      uv sync --frozen
+      .buildkite/run-demo.sh consume
     depends_on: "setup"
     parallelism: 2
+    plugins:
+      - mise#v1.1.4:
+          version: 2026.7.6
     agents:
       queue: "hosted"
 
   - label: ":white_check_mark: Verify scheduling policy"
     key: "verify"
-    command: ".buildkite/run-demo.sh verify"
+    command: |
+      uv sync --frozen
+      .buildkite/run-demo.sh verify
     depends_on: "scheduler-runners"
+    plugins:
+      - mise#v1.1.4:
+          version: 2026.7.6
     agents:
       queue: "hosted"

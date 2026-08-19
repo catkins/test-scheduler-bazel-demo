@@ -8,27 +8,19 @@ readonly expected_failures=100
 readonly scheduler="https://api.buildkite.com/v2/organizations/${org}/test-scheduler"
 readonly audience="https://buildkite.com/organizations/${org}/analytics/suites/${suite}"
 
-token="$(buildkite-agent oidc request-token \
+export TEST_SCHEDULER_URL="${scheduler}"
+TEST_SCHEDULER_TOKEN="$(buildkite-agent oidc request-token \
   --audience "${audience}" \
   --lifetime 900 \
   --claim organization_id \
   --claim pipeline_id \
   --claim build_id \
   --claim job_id)"
+export TEST_SCHEDULER_TOKEN
+export BUILDKITE_ANALYTICS_TOKEN="${TEST_SCHEDULER_TOKEN}"
 
 api() {
-  local method="$1"
-  local path="$2"
-  local body="${3:-}"
-  local args=(--fail-with-body --silent --show-error --request "${method}"
-    --header "Authorization: Bearer ${token}"
-    --header "Content-Type: application/json")
-
-  if [[ -n "${body}" ]]; then
-    args+=(--data "${body}")
-  fi
-
-  curl "${args[@]}" "${scheduler}${path}"
+  .venv/bin/python .buildkite/test_scheduler_client.py "$@"
 }
 
 setup() {
@@ -62,17 +54,6 @@ setup() {
   echo "Uploaded all ${target_count} entries and sealed the pool"
 }
 
-install_bazelisk() {
-  curl --fail --location --silent --show-error \
-    --output bazelisk \
-    https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64
-  curl --fail --location --silent --show-error \
-    --output bazelisk.sha256 \
-    https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64.sha256
-  echo "$(awk '{print $1}' bazelisk.sha256)  bazelisk" | sha256sum --check
-  chmod +x bazelisk
-}
-
 consume() {
   local pool_id worker invocation empty_polls lease_response state lease_id
   local initial_count retry_count all_statuses attempt_index bep statuses
@@ -84,7 +65,6 @@ consume() {
   invocation=0
   empty_polls=0
   state="unknown"
-  install_bazelisk
   echo "Runner ${worker}/2 consuming pool ${pool_id}"
 
   # Stagger polling so both jobs do not make empty lease requests together.
@@ -125,7 +105,19 @@ consume() {
         '.lease.attempts[] | select(.attempt_index == $attempt_index) | .selector' <<<"${lease_response}")
       invocation=$((invocation + 1))
       bep="bep-runner-${worker}-${invocation}.json"
-      bazel_args=(test --test_output=errors --test_env="DEMO_ATTEMPT_INDEX=${attempt_index}" --build_event_json_file="${bep}")
+      bazel_args=(test
+        --test_output=errors
+        --test_env="DEMO_ATTEMPT_INDEX=${attempt_index}"
+        --test_env="PYTEST_BIN=${PWD}/.venv/bin/pytest"
+        --test_env=BUILDKITE_ANALYTICS_TOKEN
+        --test_env=BUILDKITE_BRANCH
+        --test_env=BUILDKITE_BUILD_ID
+        --test_env=BUILDKITE_BUILD_NUMBER
+        --test_env=BUILDKITE_BUILD_URL
+        --test_env=BUILDKITE_COMMIT
+        --test_env=BUILDKITE_JOB_ID
+        --test_env=BUILDKITE_PIPELINE_SLUG
+        --build_event_json_file="${bep}")
 
       if (( attempt_index > 0 )); then
         bazel_args+=(--nocache_test_results)
@@ -135,7 +127,7 @@ consume() {
       fi
 
       bazel_result=0
-      ./bazelisk "${bazel_args[@]}" "${labels[@]}" || bazel_result=$?
+      bazelisk "${bazel_args[@]}" "${labels[@]}" || bazel_result=$?
       statuses="$(jq -sc '
         map(select(.id.testResult.label))
         | group_by(.id.testResult.label)

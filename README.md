@@ -15,9 +15,16 @@ The pipeline:
 5. verifies the pool is consumed with the expected entry, attempt, and result
    metrics.
 
-Each test sleeps for 10 ms. Every tenth target intentionally fails its initial
-attempt and passes its retry. This produces 1,000 initial attempts and 100
+The pipeline uses the Buildkite mise plugin to install Bazelisk, Python, and
+uv. Each Bazel target runs a distinct pytest test through uv's virtual
+environment and uploads its result with `buildkite-test-collector`. Each test
+sleeps for 10 ms. Every tenth target intentionally fails its initial attempt
+and passes its retry. This produces 1,000 initial attempts and 100
 policy-generated retries, while keeping the workload deterministic.
+
+Test Engine and Test Scheduler both authenticate with the same short-lived
+Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`
+client in `.buildkite/test_scheduler_client.py`; the demo does not use bktec.
 
 The example uses local Bazel execution. It models the orchestration intended
 for customer's Bazel remote execution integration: a setup job populates and

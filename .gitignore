@@ -2,6 +2,7 @@
 /bazel-out
 /bazel-test-scheduler-bazel-demo
 /bazel-testlogs
-/bazelisk
-/bazelisk.sha256
 /bep-*.json
+/.pytest_cache
+/.venv
+**/__pycache__

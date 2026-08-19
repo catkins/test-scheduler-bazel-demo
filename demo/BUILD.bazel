@@ -3,6 +3,7 @@
         name = "target_%d" % index,
         srcs = ["test.sh"],
         args = [str(index)],
+        data = ["test_demo.py"],
     )
     for index in range(1000)
 ]
