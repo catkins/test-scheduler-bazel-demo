@@ -38,15 +38,16 @@ receives the files and environment values that Bazel declares for that action.
 
 The pipeline does these tasks:
 
-1. It creates a Test Scheduler pool.
-2. It adds 100 targets to the pool.
-3. It applies one of two policies to each target.
-4. It seals the pool.
-5. It leases all 550 initial attempts in one Buildkite job.
-6. It sends all initial attempts to BuildBuddy in one Bazel invocation.
-7. It sends the results to Test Scheduler.
-8. It uses five Buildkite jobs to consume retries.
-9. It verifies the final pool state and counts.
+1. The setup job creates a Test Scheduler pool.
+2. The setup job adds 100 targets to the pool.
+3. Each target selects one of two policies.
+4. The setup job seals the pool.
+5. The initial dispatcher leases all 550 initial attempts.
+6. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
+   invocation.
+7. The dispatcher sends the results to Test Scheduler.
+8. Five parallel consumer jobs lease and run retries.
+9. The verification job checks the final pool state and counts.
 
 ## Policies
 
