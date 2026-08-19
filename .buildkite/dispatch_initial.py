@@ -19,11 +19,11 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
-TARGET_COUNT = 500
+TARGET_COUNT = 600
 DEFAULT_INITIAL_ATTEMPTS = 1
 QUALIFICATION_INITIAL_ATTEMPTS = 10
-# The final ten labels use the qualification policy and ten Bazel runs.
-QUALIFICATION_START = 490
+# The final 100 labels use the qualification policy and ten Bazel runs.
+QUALIFICATION_START = 500
 QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
 # The completion API accepts at most 5,000 attempts in one request.
 COMPLETION_MAX_ATTEMPTS = 5_000
@@ -247,7 +247,7 @@ def main() -> None:
                 # qualification attempt is an independent execution.
                 "--cache_test_results=auto",
                 f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
-                "--runs_per_test=//demo:target_49[0-9]@10",
+                "--runs_per_test=//demo:target_5[0-9][0-9]@10",
                 "--test_output=errors",
                 f"--build_event_json_file={bep}",
                 *labels,

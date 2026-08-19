@@ -6,9 +6,9 @@ import os
 from test_scheduler_client import SUITE, configure_auth, metadata, request
 
 
-TARGET_COUNT = 500
-# Targets 0-489 use the default policy. Targets 490-499 use qualification.
-QUALIFICATION_START = 490
+TARGET_COUNT = 600
+# Targets 0-499 use the default policy. Targets 500-599 use qualification.
+QUALIFICATION_START = 500
 
 
 def main() -> None:

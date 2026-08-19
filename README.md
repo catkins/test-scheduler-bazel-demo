@@ -4,7 +4,7 @@ This repository shows how Buildkite Test Scheduler can control a large Bazel
 test workload. The example uses BuildBuddy for Bazel Remote Execution. It
 models a large remote-execution workflow.
 
-The demo has 500 Bazel targets. Each target runs one pytest test. Each test
+The demo has 600 Bazel targets. Each target runs one pytest test. Each test
 sleeps for 10 ms and then passes or fails.
 
 ## Responsibilities
@@ -39,10 +39,10 @@ receives the files and environment values that Bazel declares for that action.
 The pipeline does these tasks:
 
 1. The setup job creates a Test Scheduler pool.
-2. The setup job adds 500 targets to the pool.
+2. The setup job adds 600 targets to the pool.
 3. Each target selects one of two policies.
 4. The setup job seals the pool.
-5. The initial dispatcher leases all 590 initial attempts.
+5. The initial dispatcher leases all 1,500 initial attempts.
 6. The dispatcher dynamically adds the consumer and verification jobs.
 7. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
    invocation.
@@ -58,13 +58,14 @@ the pool is created.
 
 | Policy | Targets | Initial attempts per target | Required result | Maximum attempts |
 | --- | ---: | ---: | --- | ---: |
-| `default` | 490 | 1 | 1 pass | 2 |
-| `qualification` | 10 | 10 | 10 passes | 10 |
+| `default` | 500 | 1 | 1 pass | 2 |
+| `qualification` | 100 | 10 | 10 passes | 10 |
 
-Ten targets in the `default` group fail their initial attempt. Test Scheduler
-creates one retry for each of these targets. The retries pass.
+Fifty targets in the `default` group fail their initial attempt. This is 10%
+of the group. Test Scheduler creates one retry for each of these targets. The
+retries pass.
 
-All ten targets in the `qualification` group pass. Each target must pass ten
+All 100 targets in the `qualification` group pass. Each target must pass ten
 times. This group does not need retries.
 
 The `default` policy creates one attempt immediately. It requires one pass. It
@@ -81,16 +82,16 @@ do not change after the pool is created.
 
 The expected totals are:
 
-- 590 initial executions
-- 10 retry executions
-- 600 completed executions
-- 590 passed attempts
-- 10 intentional failed attempts
+- 1,500 initial executions
+- 50 retry executions
+- 1,550 completed executions
+- 1,500 passed attempts
+- 50 intentional failed attempts
 
 ## Pool lifecycle
 
 The setup job creates the pool in the `populating` state. The pool accepts
-entries only in this state. The setup job adds all 500 entries in five requests
+entries only in this state. The setup job adds all 600 entries in six requests
 of 100 entries. It then sets `populating` to false. This action seals the pool
 and makes the initial attempts available for leases.
 
@@ -117,10 +118,9 @@ metadata. Later jobs read the ID from that metadata.
 | Completion request limit | 5,000 attempts | Sets the maximum result batch size in the client. |
 
 Each initial attempt costs one unit. One lease can therefore hold at most 300
-attempts. The 590 initial attempts need more than one lease. Test Scheduler
-chooses the exact split. In a verified run, it returned one 300-attempt lease,
-one 200-attempt lease, and nine 10-attempt leases. The dispatcher keeps leasing
-until it holds all 590 attempts, so it does not depend on this exact split.
+attempts. The 1,500 initial attempts need at least five leases. Test Scheduler
+chooses the exact split. The dispatcher keeps leasing until it holds all 1,500
+attempts, so it does not depend on the split.
 
 ## Build graph
 
@@ -132,9 +132,9 @@ both jobs.
 
 ```mermaid
 flowchart LR
-    populate["Create and seal pool<br/>500 entries"]
-    initial["Dispatch initial attempts<br/>1 job · 590 executions"]
-    retry["Consume retries<br/>1 job · 10 executions"]
+    populate["Create and seal pool<br/>600 entries"]
+    initial["Dispatch initial attempts<br/>1 job · 1,500 executions"]
+    retry["Consume retries<br/>1 job · 50 executions"]
     verify["Verify pool<br/>state and counts"]
 
     populate --> initial
@@ -148,7 +148,7 @@ steps. It sends the generated YAML to `buildkite-agent pipeline upload`. The
 consumer starts only after the dispatcher holds all initial work, so it cannot
 take an initial attempt during normal operation.
 
-One consumer can lease all ten retries in one request. Five consumers would not
+One consumer can lease all 50 retries in one request. Five consumers would not
 increase throughput for this workload. Buildkite automatic retries provide
 replacement capacity when the consumer cannot finish.
 
@@ -175,17 +175,17 @@ sequenceDiagram
     participant V as Verification job
 
     S->>TS: Create pool with two policies
-    S->>TS: Add 500 entries with policy keys
+    S->>TS: Add 600 entries with policy keys
     S->>TS: Seal pool
 
-    loop Until all 590 initial attempts are held
+    loop Until all 1,500 initial attempts are held
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
     D->>BK: Upload consumer and verification steps
     BK->>R: Start consumer after populate
     par Initial Bazel execution
-        D->>+BB: Start 500 targets with 1 or 10 runs per target
+        D->>+BB: Start 600 targets with 1 or 10 runs per target
         loop Every 60 seconds while Bazel runs
             D->>TS: Heartbeat all leases
         end
@@ -194,10 +194,10 @@ sequenceDiagram
         R->>TS: Request a lease
         TS-->>R: No work while dispatcher holds initial attempts
     end
-    D->>TS: Complete 590 attempts
+    D->>TS: Complete 1,500 attempts
 
     TS->>TS: Evaluate each entry policy
-    TS->>TS: Create 10 retries
+    TS->>TS: Create 50 retries
 
     R->>TS: Lease retries
     R->>BB: Run retry targets without the test-result cache
@@ -212,7 +212,7 @@ sequenceDiagram
 ## Bazel execution
 
 The dispatcher requests initial leases sequentially. Each request can return up
-to 300 attempts. The dispatcher does not start Bazel until it holds all 590
+to 300 attempts. The dispatcher does not start Bazel until it holds all 1,500
 initial attempts. This loop drains only the initial queue. Test Scheduler
 creates retries after it receives the initial results.
 
@@ -220,17 +220,19 @@ The dispatcher uses this wait point intentionally. It lets one Bazel invocation
 submit the complete initial workload. BuildBuddy can then schedule the actions
 across its workers. The lease requests do not run in parallel.
 
-The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=1`
-for the `default` targets. It uses `--runs_per_test=10` for the
-`qualification` targets. It sets `--jobs=590` so that Bazel can submit all
-initial actions without a small local concurrency limit.
+The initial dispatcher uses one Bazel invocation. It sets one run for the
+`default` targets and ten runs for the `qualification` targets. With remote
+execution, it sets the Bazel job limit to 1,500. This limit lets Bazel submit the
+complete initial workload without a smaller local limit. It does not guarantee
+that 1,500 actions run at the same time. BuildBuddy controls the available remote
+capacity. Without remote execution, the demo uses a limit of 20 jobs.
 
-Initial runs use `--cache_test_results=auto`. The 490 default targets run once,
-so their initial results can come from the cache. The ten qualification targets
-run ten times. Bazel auto mode does not use cached test results when
-`--runs_per_test` is greater than one. Each qualification attempt is therefore
-an independent execution. Retry runs use `--nocache_test_results`, so each
-retry also executes again.
+Initial runs use Bazel's automatic test-result cache mode. The 500 default
+targets run once, so their initial results can come from the cache. The 100
+qualification targets run ten times. Bazel auto mode does not use cached test
+results when multiple runs are requested. Each qualification attempt is
+therefore an independent execution. Retry runs disable the test-result cache,
+so each retry also executes again.
 
 A cached default result still produces a Build Event Protocol result. The
 dispatcher can therefore complete the matching Test Scheduler attempt whether
@@ -238,7 +240,7 @@ BuildBuddy executes the action or returns a cached result. Qualification and
 retry results do not use the test-result cache.
 
 The dispatcher reads the Bazel Build Event Protocol file. It matches each
-result to a Test Scheduler attempt. The dispatcher sends all 590 initial
+result to a Test Scheduler attempt. The dispatcher sends all 1,500 initial
 results in one completion request.
 
 Bazel numbers runs from one. Test Scheduler numbers attempts from zero. The
@@ -246,7 +248,7 @@ dispatcher subtracts one from each Bazel run number before it matches a result.
 It stops without completing leases if any expected result is missing.
 
 The completion client keeps all attempts from one lease in the same request.
-The current 590-attempt workload needs one completion request and stays below
+The current 1,500-attempt workload needs one completion request and stays below
 the 5,000-attempt API limit. The dispatcher fails before it leases work if a
 future workload exceeds this limit. It does not send a partial completion that
 a replacement job cannot reconcile.
@@ -254,17 +256,43 @@ a replacement job cannot reconcile.
 The Buildkite job owns the Test Scheduler leases. Remote Bazel actions do not
 receive Buildkite credentials or the BuildBuddy API key.
 
+### Bazel command flags
+
+The dispatcher and consumer add these flags to `bazel test`. Each flag name
+links to its entry in the Bazel command-line reference.
+
+| Flag and value | Used for | Effect on this design |
+| --- | --- | --- |
+| [`--jobs=1500`](https://bazel.build/reference/command-line-reference#param-jobs) | Remote initial dispatch | Sets Bazel's maximum number of concurrent jobs to the number of initial attempts. This removes a smaller client-side limit while BuildBuddy controls the real remote concurrency. The local fallback uses `--jobs=20`. |
+| [`--runs_per_test=1`](https://bazel.build/reference/command-line-reference#param-runs-per-test) | Initial default targets | Creates one Bazel test run for each default target. The resulting run number maps to Test Scheduler attempt index zero. |
+| [`--runs_per_test=//demo:target_5[0-9][0-9]@10`](https://bazel.build/reference/command-line-reference#param-runs-per-test) | Initial qualification targets | Overrides the earlier value for the 100 matching labels. Bazel creates ten independent runs for each target. The dispatcher maps Bazel run numbers 1–10 to Test Scheduler attempt indexes 0–9. |
+| [`--cache_test_results=auto`](https://bazel.build/reference/command-line-reference#param-no-cache-test-results) | All initial targets | Allows cached results for the one-run default targets. Bazel does not use cached test results when `--runs_per_test` requests multiple runs, so all qualification runs execute. |
+| [`--nocache_test_results`](https://bazel.build/reference/command-line-reference#param-no-cache-test-results) | Retries | Prevents Bazel from returning the cached failed initial result. Each policy-generated retry must execute again. |
+| [`--test_env=DEMO_ATTEMPT_INDEX=<index>`](https://bazel.build/reference/command-line-reference#param-test-env) | Retries | Passes the Test Scheduler attempt index to the test action. The demo uses this value to make an initial attempt fail and its retry pass. The consumer groups attempts by index because one Bazel invocation supplies one value. |
+| [`--build_event_json_file=<path>`](https://bazel.build/reference/command-line-reference#param-build-event-json-file) | Initial targets and retries | Writes the Build Event Protocol as JSON. The scripts parse `testResult` events and map each Bazel label and run number to a leased attempt. Bazel waits for this file output before the invocation ends. |
+| [`--test_output=errors`](https://bazel.build/reference/command-line-reference#param-test-output) | Initial targets and retries | Prints test logs only for failed tests. This keeps the job log smaller and does not change the result events used by the scripts. |
+| [`--remote_executor=grpcs://remote.buildbuddy.io`](https://bazel.build/reference/command-line-reference#param-remote-executor) | Remote execution | Sends eligible test actions to BuildBuddy. One Buildkite job can therefore submit the complete initial workload to a remote worker fleet. |
+| [`--remote_cache=grpcs://remote.buildbuddy.io`](https://bazel.build/reference/command-line-reference#param-remote-cache) | Remote execution and cache | Uses BuildBuddy for remote action and test-result cache access. This allows one-run initial targets to return valid cached results. |
+| [`--remote_header=x-buildbuddy-api-key=…`](https://bazel.build/reference/command-line-reference#param-remote-header) | Remote execution and cache | Authenticates Bazel's remote service requests. Bazel does not add this header to the remote test environment. |
+| [`--remote_download_minimal`](https://bazel.build/reference/command-line-reference#param-remote-download-minimal) | Remote execution | Avoids downloading remote outputs unless local actions need them. The local dispatcher still receives the Build Event Protocol data that it needs for result mapping. |
+| [`--repo_env=CC=…`](https://bazel.build/reference/command-line-reference#param-repo-env) and [`--repo_env=AR=…`](https://bazel.build/reference/command-line-reference#param-repo-env) | Repository setup | Gives repository rules the C compiler and archive-tool wrappers. `rules_python` can complete toolchain analysis without adding a system C or C++ compiler to the test image. These flags do not pass the tools to the pytest process. |
+
+The shared command also sets the `rules_python` build setting
+`--@rules_python//python/config_settings:bootstrap_impl=script`. This setting is
+not a built-in Bazel flag. It selects the script-based Python bootstrap so the
+remote test action does not depend on a compiled launcher.
+
 ## Retry consumption
 
-The dispatcher uploads the retry consumer after it leases all 590 initial
+The dispatcher uploads the retry consumer after it leases all 1,500 initial
 attempts. The consumer depends only on the `populate` step, so Buildkite can
 start it while the initial Bazel invocation runs. Its early lease requests
 return no work because the dispatcher holds every initial attempt.
 
-Test Scheduler evaluates the 500 entries after it receives the initial results.
-It creates ten retries for the ten entries that have no pass.
+Test Scheduler evaluates the 600 entries after it receives the initial results.
+It creates 50 retries for the 50 entries that have no pass.
 
-The consumer waits for a lease. It can lease all ten retries in one request.
+The consumer waits for a lease. It can lease all 50 retries in one request.
 It keeps polling until the pool is consumed.
 
 The consumer releases an initial attempt if it receives one. This case can occur
@@ -370,8 +398,8 @@ uv run --frozen python <script>
 | `.buildkite/consume_pool.py` | Leases and runs policy-generated retries. |
 | `.buildkite/verify_pool.py` | Checks the final pool metrics. |
 | `.buildkite/test_scheduler_client.py` | Sends authenticated API requests. |
-| `demo/test_demo.py` | Defines the 500 pytest tests. |
-| `demo/BUILD.bazel` | Defines the 500 Bazel test targets. |
+| `demo/test_demo.py` | Defines the 600 pytest tests. |
+| `demo/BUILD.bazel` | Defines the 600 Bazel test targets. |
 
 ## Update Python dependencies
 

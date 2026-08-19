@@ -12,5 +12,5 @@ load("@rules_python//python:defs.bzl", "py_test")
         deps = ["@demo_pypi//pytest"],
         legacy_create_init = 0,
     )
-    for index in range(500)
+    for index in range(600)
 ]
