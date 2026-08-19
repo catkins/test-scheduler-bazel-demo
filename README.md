@@ -25,6 +25,9 @@ policy-generated retries, while keeping the workload deterministic.
 Test Engine and Test Scheduler both authenticate with the same short-lived
 Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`
 client in `.buildkite/test_scheduler_client.py`; the demo does not use bktec.
+All pipeline orchestration and Bazel test launchers are Python. Pipeline steps
+run mise tasks, which invoke them through `uv run --frozen python ...` in the
+mise-managed tool environment.
 
 The example uses local Bazel execution. It models the orchestration intended
 for customer's Bazel remote execution integration: a setup job populates and
