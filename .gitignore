@@ -1,0 +1,7 @@
+/bazel-bin
+/bazel-out
+/bazel-test-scheduler-bazel-demo
+/bazel-testlogs
+/bazelisk
+/bazelisk.sha256
+/bep-*.json
