@@ -15,8 +15,10 @@ from test_scheduler_client import configure_auth, metadata, request
 TARGET_COUNT = 100
 DEFAULT_INITIAL_ATTEMPTS = 5
 QUALIFICATION_INITIAL_ATTEMPTS = 10
+# The final ten labels use the qualification policy and ten Bazel runs.
 QUALIFICATION_START = 90
 QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
+# The completion API accepts at most 5,000 attempts in one request.
 COMPLETION_MAX_ATTEMPTS = 5_000
 EXPECTED_ATTEMPTS = (
     QUALIFICATION_START * DEFAULT_INITIAL_ATTEMPTS
@@ -25,16 +27,19 @@ EXPECTED_ATTEMPTS = (
 
 
 def target_index(label: str) -> int:
+    """Return the numeric suffix from a label such as //demo:target_42."""
     return int(label.rsplit("_", 1)[1])
 
 
 def initial_attempts_for(label: str) -> int:
+    """Return the initial allocation for the policy selected by a label."""
     if target_index(label) >= QUALIFICATION_START:
         return QUALIFICATION_INITIAL_ATTEMPTS
     return DEFAULT_INITIAL_ATTEMPTS
 
 
 def completion_batches(completions: list[dict]) -> list[list[dict]]:
+    """Group whole leases without exceeding the completion API limit."""
     batches: list[list[dict]] = []
     batch: list[dict] = []
     attempt_count = 0
@@ -52,12 +57,15 @@ def completion_batches(completions: list[dict]) -> list[list[dict]]:
 
 
 def read_bep(path: Path) -> dict[tuple[str, int], str]:
+    """Map each Bazel label and zero-based run index to its result."""
     statuses: dict[tuple[str, int], str] = {}
     with path.open() as events:
         for line in events:
             event = json.loads(line)
             test_result = event.get("id", {}).get("testResult")
             if test_result:
+                # Bazel run numbers start at one. Scheduler attempt indexes
+                # start at zero.
                 statuses[(test_result["label"], test_result["run"] - 1)] = event[
                     "testResult"
                 ]["status"]
@@ -70,6 +78,7 @@ def heartbeat(
     stop: threading.Event,
     errors: list[Exception],
 ) -> None:
+    """Extend all initial leases until Bazel finishes or a request fails."""
     try:
         while not stop.wait(60):
             request(
@@ -89,6 +98,8 @@ def main() -> None:
     leases = []
     leased_attempts = 0
 
+    # Acquire all initial work before Bazel starts. This barrier lets one Bazel
+    # invocation submit the complete initial target set to remote execution.
     while leased_attempts < EXPECTED_ATTEMPTS:
         response = request(
             "POST", f"/pools/{pool_id}/leases", {"lease_ttl_seconds": 600}
@@ -108,6 +119,8 @@ def main() -> None:
             attempt["attempt_index"] >= initial_attempts_for(attempt["selector"])
             for attempt in lease["attempts"]
         ):
+            # A retried coordinator can arrive after the first job completed
+            # the initial work. Do not consume policy-generated retries here.
             request(
                 "POST",
                 f"/pools/{pool_id}/leases/release",
@@ -153,6 +166,8 @@ def main() -> None:
     heartbeat_thread.start()
     bep = Path("bep-initial.json")
     try:
+        # A remote executor controls the real concurrency. This high Bazel
+        # limit only permits every initial action to be submitted at once.
         jobs = EXPECTED_ATTEMPTS if os.environ.get("BUILDBUDDY_API_KEY") else 20
         print(
             f"Sending all {TARGET_COUNT} targets to one Bazel invocation with "
@@ -164,6 +179,8 @@ def main() -> None:
             bazel.command()
             + [
                 f"--jobs={jobs}",
+                # Bazel's default auto mode ignores cached test results when
+                # runs_per_test is greater than one. Force cache use here.
                 "--cache_test_results=yes",
                 f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
                 "--runs_per_test=//demo:target_9[0-9]@10",
@@ -180,6 +197,8 @@ def main() -> None:
         raise RuntimeError("Failed to heartbeat initial leases") from heartbeat_errors[0]
 
     statuses = read_bep(bep)
+    # Do not complete a lease unless Bazel returned every expected run. A
+    # missing result would otherwise become an incorrect failed result.
     missing = [
         (attempt["selector"], attempt["attempt_index"])
         for attempt in attempts
@@ -206,6 +225,8 @@ def main() -> None:
         }
         for lease in leases
     ]
+    # The current 550-attempt workload fits in one request. Keep batching so a
+    # larger workload still respects the 5,000-attempt API limit.
     for batch_number, batch in enumerate(completion_batches(completions), start=1):
         batch_attempt_count = sum(len(completion["attempts"]) for completion in batch)
         request(

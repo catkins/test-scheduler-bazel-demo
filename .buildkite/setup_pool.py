@@ -7,6 +7,7 @@ from test_scheduler_client import SUITE, configure_auth, metadata, request
 
 
 TARGET_COUNT = 100
+# Targets 0-89 use the default policy. Targets 90-99 use qualification.
 QUALIFICATION_START = 90
 
 
@@ -21,8 +22,13 @@ def main() -> None:
             "build_id": os.environ["BUILDKITE_BUILD_ID"],
             "key": f"bazel-demo-{os.environ['BUILDKITE_BUILD_ID']}",
             "ttl_seconds": 3_600,
+            # Each entry costs one unit. A lease has 300 units and can contain
+            # at most 300 attempts. The 550 initial attempts need at least two
+            # leases.
             "lease": {"costs": {"custom": 300}, "max_attempts": 300},
             "attempt_policy": {
+                # Five initial passes complete an entry. One initial failure
+                # leaves room for one policy-generated retry.
                 "default": {
                     "max_attempts": 6,
                     "max_failed": 2,
@@ -32,6 +38,8 @@ def main() -> None:
                     "parallel_attempts": 5,
                     "initial_attempts": 5,
                 },
+                # Qualification requires ten passes. One failure ends the
+                # entry because max_failed is one.
                 "qualification": {
                     "max_attempts": 10,
                     "max_failed": 1,
@@ -61,6 +69,8 @@ def main() -> None:
                 "meta_data": {
                     "framework": "bazel",
                     "demo": "test-scheduler-bazel",
+                    # Lease responses include metadata but not the policy key.
+                    # Keep a copy here so a consumer can inspect the choice.
                     "attempt_policy": (
                         "qualification" if index >= QUALIFICATION_START else "default"
                     ),

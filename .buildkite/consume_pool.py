@@ -13,10 +13,13 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
+# Default-policy retries start at index five. Qualification entries do not
+# retry in this demo because all ten qualification runs pass.
 INITIAL_ATTEMPTS = 5
 
 
 def read_bep(path: Path) -> dict[str, str]:
+    """Map each Bazel label to the result from one retry invocation."""
     statuses: dict[str, str] = {}
     with path.open() as events:
         for line in events:
@@ -39,6 +42,7 @@ def run_attempts(
     ]
     kind = "INITIAL"
     if attempt_index >= INITIAL_ATTEMPTS:
+        # A retry must execute again even when the initial result is cached.
         args.append("--nocache_test_results")
         kind = "RETRY (--nocache_test_results enabled)"
     print(
@@ -67,6 +71,7 @@ def main() -> None:
     empty_polls = 0
     state = "unknown"
     print(f"Runner {worker}/{worker_count} consuming pool {pool_id}")
+    # A short stagger prevents all five jobs from polling at the same instant.
     time.sleep((worker - 1) * 2)
 
     while empty_polls < 90:
@@ -99,6 +104,8 @@ def main() -> None:
 
         empty_polls = 0
         attempts = lease["attempts"]
+        # The dispatcher must finish every initial attempt before this step.
+        # Fail if a retry consumer crosses that ownership boundary.
         if any(attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts):
             raise RuntimeError("Retry consumer received an unfinished initial attempt")
         initial_count = sum(
@@ -110,6 +117,8 @@ def main() -> None:
         )
 
         all_statuses: dict[str, str] = {}
+        # DEMO_ATTEMPT_INDEX applies to one Bazel invocation. Keep attempts
+        # with different indexes in separate invocations.
         for attempt_index in sorted({attempt["attempt_index"] for attempt in attempts}):
             labels = [
                 attempt["selector"]

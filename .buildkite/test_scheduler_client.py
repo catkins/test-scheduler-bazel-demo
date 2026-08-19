@@ -17,6 +17,8 @@ POOL_METADATA_KEY = "test-scheduler-pool-id"
 
 
 def configure_auth() -> None:
+    # The requested claims bind the token to this organization, pipeline,
+    # build, and job. The token expires after 30 minutes.
     token = subprocess.run(
         [
             "buildkite-agent",
@@ -45,6 +47,7 @@ def configure_auth() -> None:
 
 
 def metadata(action: str, value: str | None = None) -> str:
+    """Share the pool ID between jobs through Buildkite build metadata."""
     args = ["buildkite-agent", "meta-data", action, POOL_METADATA_KEY]
     if value is not None:
         args.append(value)

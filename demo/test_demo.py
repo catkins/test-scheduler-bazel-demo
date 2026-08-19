@@ -3,6 +3,8 @@ import time
 
 
 def _test_target(index: int) -> None:
+    # Bazel sets TEST_RUN_NUMBER for runs_per_test. Retry consumers set
+    # DEMO_ATTEMPT_INDEX because each retry uses a separate Bazel invocation.
     attempt = int(
         os.environ.get(
             "DEMO_ATTEMPT_INDEX", str(int(os.environ.get("TEST_RUN_NUMBER", "1")) - 1)
@@ -10,6 +12,8 @@ def _test_target(index: int) -> None:
     )
     time.sleep(0.01)
 
+    # Ten default-policy targets fail attempt zero and pass later attempts.
+    # Qualification targets 90-99 always pass all ten runs.
     assert index >= 90 or index % 9 != 0 or attempt > 0, (
         f"target {index} intentionally fails scheduler attempt {attempt}"
     )
