@@ -56,7 +56,7 @@ def step_exists(key: str) -> bool:
     return result.returncode == 0
 
 
-def dynamic_pipeline() -> Pipeline:
+def retry_consumer_pipeline() -> Pipeline:
     """Define the retry consumer and final verification steps."""
     mise_plugin = [{"mise#v1.1.4": {"version": "2026.7.6"}}]
     retry_consumer = CommandStep(
@@ -89,15 +89,15 @@ def dynamic_pipeline() -> Pipeline:
     return Pipeline(steps=[retry_consumer, verify])
 
 
-def upload_retry_pipeline() -> None:
+def upload_retry_consumer_steps() -> None:
     """Upload the retry consumer and final verification steps once."""
     if step_exists("retry-consumer"):
-        print("Retry consumer already exists; skipping dynamic pipeline upload")
+        print("Retry consumer already exists; skipping consumer step upload")
         return
 
     result = subprocess.run(
         ["buildkite-agent", "pipeline", "upload"],
-        input=dynamic_pipeline().to_yaml(sort_keys=False),
+        input=retry_consumer_pipeline().to_yaml(sort_keys=False),
         check=False,
         text=True,
     )
@@ -212,7 +212,7 @@ def main() -> None:
 
     # Upload only after the lease barrier. The consumer can now run in parallel
     # without taking initial attempts from the dispatcher.
-    upload_retry_pipeline()
+    upload_retry_consumer_steps()
 
     stop = threading.Event()
     heartbeat_errors: list[Exception] = []
