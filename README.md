@@ -46,7 +46,7 @@ The pipeline does these tasks:
 6. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
    invocation.
 7. The dispatcher sends the results to Test Scheduler.
-8. Five parallel consumer jobs lease and run retries.
+8. One consumer job leases and runs retries.
 9. The verification job checks the final pool state and counts.
 
 ## Policies
@@ -121,36 +121,25 @@ attempts. The dispatcher normally uses one 300-attempt lease and one
 
 ## Build graph
 
-The setup job and the initial dispatcher run once. The retry step has five
-parallel jobs. The verification job starts after all retry jobs finish.
+The setup job, initial dispatcher, and retry consumer run once. Buildkite can
+replace the retry consumer after a temporary failure. The verification job
+starts after the consumer succeeds.
 
 ```mermaid
 flowchart LR
     setup["Create and seal pool<br/>100 entries"]
     initial["Dispatch initial attempts<br/>1 job · 550 executions"]
-    retry1["Retry consumer 1"]
-    retry2["Retry consumer 2"]
-    retry3["Retry consumer 3"]
-    retry4["Retry consumer 4"]
-    retry5["Retry consumer 5"]
+    retry["Consume retries<br/>1 job · 10 executions"]
     verify["Verify pool<br/>state and counts"]
 
     setup --> initial
-    initial --> retry1
-    initial --> retry2
-    initial --> retry3
-    initial --> retry4
-    initial --> retry5
-    retry1 --> verify
-    retry2 --> verify
-    retry3 --> verify
-    retry4 --> verify
-    retry5 --> verify
+    initial --> retry
+    retry --> verify
 ```
 
-The five retry jobs compete for available work. Test Scheduler can give all
-retries to one job. The other jobs continue to poll until the pool is consumed.
-This behavior is expected. The extra jobs give spare consumer capacity.
+One consumer can lease all ten retries in one request. Five consumers would
+not increase throughput for this workload. Buildkite automatic retries provide
+replacement capacity when the consumer cannot finish.
 
 The pipeline defines the `hosted` agent queue once at the top level. It also
 defines `BUILDBUDDY_API_KEY` once as a top-level secret. All command steps
@@ -170,7 +159,7 @@ sequenceDiagram
     participant TS as Test Scheduler
     participant D as Initial dispatcher
     participant BB as BuildBuddy
-    participant R as Retry consumers
+    participant R as Retry consumer
     participant V as Verification job
 
     S->>TS: Create pool with two policies
@@ -191,9 +180,7 @@ sequenceDiagram
     TS->>TS: Evaluate each entry policy
     TS->>TS: Create 10 retries
 
-    par Five Buildkite jobs poll the pool
-        R->>TS: Lease retries
-    end
+    R->>TS: Lease retries
     R->>BB: Run retry targets without the test-result cache
     BB-->>R: Return retry results
     R->>TS: Complete retry leases
@@ -246,23 +233,22 @@ receive Buildkite credentials or the BuildBuddy API key.
 
 ## Retry consumption
 
-The initial dispatcher finishes before the five retry consumers start. Test
+The initial dispatcher finishes before the retry consumer starts. Test
 Scheduler evaluates the 100 entries after it receives the initial results. It
 creates ten retries for the ten entries that have only four passes.
 
-Each consumer waits for a lease. The jobs start with a short stagger so that
-they do not all send their first request at the same instant. One consumer can
-lease all ten retries. The other consumers keep polling until the pool is
-consumed.
+The consumer waits for a lease. It can lease all ten retries in one request.
+It keeps polling until the pool is consumed.
 
 A consumer rejects an initial attempt. This check keeps the ownership boundary
-clear: the dispatcher owns initial attempts, and consumers own retries. A
+clear: the dispatcher owns initial attempts, and the consumer owns retries. A
 consumer groups leased attempts by attempt index because one Bazel invocation
 uses one `DEMO_ATTEMPT_INDEX` value.
 
-The consumers poll every ten seconds when no work is available. They stop when
-the pool is consumed. They fail after 90 empty or unavailable polls. This gives
-policy evaluation and expired leases up to 15 minutes to produce work.
+The consumer polls every ten seconds when no work is available. It stops when
+the pool is consumed. It exits with status 75 after 90 empty or unavailable
+polls. This gives policy evaluation and expired leases up to 15 minutes to
+produce work. Buildkite can retry status 75 two times.
 
 ## Failure recovery
 
@@ -275,16 +261,21 @@ attempts available again.
 
 The dispatcher checks the attempt index in each lease. A restarted dispatcher
 releases a lease if it contains policy-generated retries. This prevents the
-initial job from taking work that belongs to the retry consumers.
+initial job from taking work that belongs to the retry consumer.
 
 The demo does not reconnect to an existing BuildBuddy invocation. A retried
 dispatcher starts Bazel again. Bazel can use cached results when they are
 available.
 
-If one retry consumer stops, its lease expires after 300 seconds. Another
-consumer can lease that work while it continues to poll. The failed Buildkite
-job still makes the parallel step fail unless Buildkite retries that job. If all
-consumers stop, the verification job does not start.
+If the retry consumer loses its agent, Buildkite records exit status -1 and
+starts a replacement job. If the consumer reaches its polling limit or a
+temporary scheduler request fails, it exits with status 75. Buildkite also
+starts a replacement job for this status. Each rule permits two replacements.
+
+An abandoned lease expires after 300 seconds. A replacement consumer polls
+until it can lease that work. Other exit statuses are not retried. A Bazel or
+configuration error therefore remains visible instead of causing repeated
+jobs.
 
 ## Tools and authentication
 

@@ -27,11 +27,18 @@ steps:
       - mise#v1.1.4:
           version: 2026.7.6
 
-  - label: ":repeat: Retry runner %n"
-    key: "retry-runners"
+  - label: ":repeat: Consume retries"
+    key: "retry-consumer"
     command: mise run scheduler-consume
     depends_on: "dispatch-initial"
-    parallelism: 5
+    retry:
+      automatic:
+        # Buildkite uses -1 when it loses contact with the agent.
+        - exit_status: -1
+          limit: 2
+        # The consumer uses 75 when the pool may become drainable later.
+        - exit_status: 75
+          limit: 2
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6
@@ -39,7 +46,7 @@ steps:
   - label: ":white_check_mark: Verify scheduling policy"
     key: "verify"
     command: mise run scheduler-verify
-    depends_on: "retry-runners"
+    depends_on: "retry-consumer"
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6

@@ -2,7 +2,6 @@
 """Lease Test Scheduler attempts and execute their Bazel targets."""
 
 import json
-import os
 from pathlib import Path
 import subprocess
 import time
@@ -16,6 +15,15 @@ from test_scheduler_client import configure_auth, metadata, request
 # Default-policy retries start at index five. Qualification entries do not
 # retry in this demo because all ten qualification runs pass.
 INITIAL_ATTEMPTS = 5
+# EX_TEMPFAIL tells Buildkite that a replacement consumer can safely try again.
+EX_TEMPFAIL = 75
+
+
+def is_temporary_http_error(error: httpx.HTTPError) -> bool:
+    """Return whether a scheduler request can reasonably succeed later."""
+    if not isinstance(error, httpx.HTTPStatusError):
+        return True
+    return error.response.status_code in {408, 429} or error.response.status_code >= 500
 
 
 def read_bep(path: Path) -> dict[str, str]:
@@ -31,10 +39,10 @@ def read_bep(path: Path) -> dict[str, str]:
 
 
 def run_attempts(
-    worker: int, invocation: int, attempt_index: int, labels: list[str]
+    invocation: int, attempt_index: int, labels: list[str]
 ) -> tuple[int, dict[str, str]]:
     invocation += 1
-    bep = Path(f"bep-runner-{worker}-{invocation}.json")
+    bep = Path(f"bep-retry-{invocation}.json")
     args = bazel.command() + [
         "--test_output=errors",
         f"--test_env=DEMO_ATTEMPT_INDEX={attempt_index}",
@@ -46,7 +54,7 @@ def run_attempts(
         args.append("--nocache_test_results")
         kind = "RETRY (--nocache_test_results enabled)"
     print(
-        f"Runner {worker}, invocation {invocation}: {kind} "
+        f"Retry invocation {invocation}: {kind} "
         f"attempt={attempt_index}, targets={len(labels)}"
     )
 
@@ -56,7 +64,7 @@ def run_attempts(
         status: list(statuses.values()).count(status) for status in set(statuses.values())
     }
     print(
-        f"Runner {worker}, invocation {invocation}: "
+        f"Retry invocation {invocation}: "
         f"Bazel exit={result.returncode}, results={counts}"
     )
     return invocation, statuses
@@ -65,14 +73,10 @@ def run_attempts(
 def main() -> None:
     configure_auth()
     pool_id = metadata("get")
-    worker = int(os.environ["BUILDKITE_PARALLEL_JOB"]) + 1
-    worker_count = int(os.environ["BUILDKITE_PARALLEL_JOB_COUNT"])
     invocation = 0
     empty_polls = 0
     state = "unknown"
-    print(f"Runner {worker}/{worker_count} consuming pool {pool_id}")
-    # A short stagger prevents all five jobs from polling at the same instant.
-    time.sleep((worker - 1) * 2)
+    print(f"Retry consumer is consuming pool {pool_id}")
 
     while empty_polls < 90:
         try:
@@ -80,7 +84,9 @@ def main() -> None:
                 "POST", f"/pools/{pool_id}/leases", {"lease_ttl_seconds": 300}
             )
         except httpx.HTTPError as error:
-            print(f"Runner {worker}: lease request unavailable ({error}); retrying")
+            if not is_temporary_http_error(error):
+                raise
+            print(f"Lease request is temporarily unavailable ({error}); retrying")
             empty_polls += 1
             time.sleep(10)
             continue
@@ -90,13 +96,13 @@ def main() -> None:
         if lease is None:
             if state == "consumed":
                 print(
-                    f"Runner {worker}: pool consumed after {invocation} "
+                    f"Pool consumed after {invocation} "
                     "local Bazel invocations"
                 )
                 break
             empty_polls += 1
             print(
-                f"Runner {worker}: no work yet (pool state {state}); "
+                f"No work yet (pool state {state}); "
                 "waiting for policy evaluation"
             )
             time.sleep(10)
@@ -112,7 +118,7 @@ def main() -> None:
             attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts
         )
         print(
-            f"Runner {worker}: leased {len(attempts)} targets "
+            f"Leased {len(attempts)} targets "
             f"(initial={initial_count}, retry={len(attempts) - initial_count})"
         )
 
@@ -125,9 +131,7 @@ def main() -> None:
                 for attempt in attempts
                 if attempt["attempt_index"] == attempt_index
             ]
-            invocation, statuses = run_attempts(
-                worker, invocation, attempt_index, labels
-            )
+            invocation, statuses = run_attempts(invocation, attempt_index, labels)
             all_statuses.update(statuses)
 
         missing_results = [
@@ -158,16 +162,21 @@ def main() -> None:
         )
         passed = sum(completion["result"] == "passed" for completion in completions)
         print(
-            f"Runner {worker}: completed lease {lease['id']} with {passed} passed "
+            f"Completed lease {lease['id']} with {passed} passed "
             f"and {len(completions) - passed} failed"
         )
         time.sleep(10)
 
     if state != "consumed":
-        raise RuntimeError(
-            f"Runner {worker}: pool did not reach consumed state before the poll limit"
-        )
+        print("Pool did not reach consumed state before the poll limit")
+        raise SystemExit(EX_TEMPFAIL)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except httpx.HTTPError as error:
+        if is_temporary_http_error(error):
+            print(f"Scheduler request failed temporarily: {error}")
+            raise SystemExit(EX_TEMPFAIL) from None
+        raise
