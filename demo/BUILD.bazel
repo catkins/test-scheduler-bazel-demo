@@ -1,13 +1,8 @@
 [
     sh_test(
-        name = name,
+        name = "target_%d" % index,
         srcs = ["test.sh"],
-        args = [kind],
+        args = [str(index)],
     )
-    for name, kind in [
-        ("parser_test", "pass"),
-        ("planner_test", "pass"),
-        ("executor_test", "pass"),
-        ("flaky_remote_test", "fail-first"),
-    ]
+    for index in range(1000)
 ]

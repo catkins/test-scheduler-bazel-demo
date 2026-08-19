@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-kind="$1"
+index="$1"
 attempt="${DEMO_ATTEMPT_INDEX:-0}"
 
-echo "target=${TEST_TARGET:-unknown} scheduler_attempt=${attempt} kind=${kind}"
+sleep 0.01
+echo "target=${TEST_TARGET:-unknown} scheduler_attempt=${attempt} index=${index}"
 
-if [[ "${kind}" == "fail-first" && "${attempt}" == "0" ]]; then
-  echo "Intentional initial failure; this target should be retried alone."
+if (( index % 10 == 0 && attempt == 0 )); then
+  echo "Intentional initial failure; Test Scheduler should generate a retry."
   exit 1
 fi

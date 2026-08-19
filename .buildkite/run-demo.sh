@@ -3,17 +3,10 @@ set -euo pipefail
 
 readonly org="catkins-test"
 readonly suite="test-scheduler-bazel-demo"
+readonly target_count=1000
+readonly expected_failures=100
 readonly scheduler="https://api.buildkite.com/v2/organizations/${org}/test-scheduler"
 readonly audience="https://buildkite.com/organizations/${org}/analytics/suites/${suite}"
-
-curl --fail --location --silent --show-error \
-  --output bazelisk \
-  https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64
-curl --fail --location --silent --show-error \
-  --output bazelisk.sha256 \
-  https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64.sha256
-echo "$(awk '{print $1}' bazelisk.sha256)  bazelisk" | sha256sum --check
-chmod +x bazelisk
 
 token="$(buildkite-agent oidc request-token \
   --audience "${audience}" \
@@ -38,99 +31,168 @@ api() {
   curl "${args[@]}" "${scheduler}${path}"
 }
 
-selectors=(
-  "//demo:parser_test"
-  "//demo:planner_test"
-  "//demo:executor_test"
-  "//demo:flaky_remote_test"
-)
+setup() {
+  local pool_body pool pool_id start entries
 
-pool_body="$(jq -nc \
-  --arg suite "${suite}" \
-  --arg pipeline "${BUILDKITE_PIPELINE_SLUG}" \
-  --arg build_id "${BUILDKITE_BUILD_ID}" \
-  --arg key "bazel-demo-${BUILDKITE_BUILD_ID}" \
-  '{suite:$suite,pipeline:$pipeline,build_id:$build_id,key:$key,ttl_seconds:1800,
-    lease:{costs:{custom:10},max_attempts:300},
-    attempt_policy:{max_attempts:2,max_failed:2,max_passed:1,min_attempts:1,min_passed:1,parallel_attempts:1,initial_attempts:1}}')"
-pool="$(api POST /pools "${pool_body}")"
-pool_id="$(jq -r .id <<<"${pool}")"
-echo "Created Test Scheduler pool ${pool_id} for ${#selectors[@]} Bazel targets"
+  pool_body="$(jq -nc \
+    --arg suite "${suite}" \
+    --arg pipeline "${BUILDKITE_PIPELINE_SLUG}" \
+    --arg build_id "${BUILDKITE_BUILD_ID}" \
+    --arg key "bazel-demo-${BUILDKITE_BUILD_ID}" \
+    '{suite:$suite,pipeline:$pipeline,build_id:$build_id,key:$key,ttl_seconds:1800,
+      lease:{costs:{custom:300},max_attempts:300},
+      attempt_policy:{max_attempts:2,max_failed:2,max_passed:1,min_attempts:1,min_passed:1,parallel_attempts:1,initial_attempts:1}}')"
+  pool="$(api POST /pools "${pool_body}")"
+  pool_id="$(jq -r .id <<<"${pool}")"
+  buildkite-agent meta-data set test-scheduler-pool-id "${pool_id}"
+  echo "Created Test Scheduler pool ${pool_id} for ${target_count} distinct Bazel targets"
 
-entries='[]'
-for selector in "${selectors[@]}"; do
-  entries="$(jq -c --arg selector "${selector}" '. + [{selector_type:"custom",selector:$selector,costs:{custom:1},priority:0,meta_data:{framework:"bazel",demo:"customer-local-bazel"}}]' <<<"${entries}")"
-done
-api POST "/pools/${pool_id}/entries" "$(jq -nc --argjson entries "${entries}" '{entries:$entries}')" >/dev/null
-api PATCH "/pools/${pool_id}" '{"populating":false}' >/dev/null
-echo "Uploaded and sealed the target pool"
+  # The entries API accepts at most 100 entries per request.
+  for (( start = 0; start < target_count; start += 100 )); do
+    entries="$(jq -nc --argjson start "${start}" '{entries:[
+      range($start; $start + 100) as $i |
+      {selector_type:"custom",selector:("//demo:target_" + ($i | tostring)),costs:{custom:1},priority:0,
+       meta_data:{framework:"bazel",demo:"customer-local-bazel"}}
+    ]}')"
+    api POST "/pools/${pool_id}/entries" "${entries}" >/dev/null
+    echo "Uploaded targets ${start}-$((start + 99))"
+  done
 
-invocation=0
-empty_polls=0
-while (( empty_polls < 90 )); do
-  lease_response="$(api POST "/pools/${pool_id}/leases" '{"lease_ttl_seconds":120}')"
-  state="$(jq -r .pool.state <<<"${lease_response}")"
+  api PATCH "/pools/${pool_id}" '{"populating":false}' >/dev/null
+  echo "Uploaded all ${target_count} entries and sealed the pool"
+}
 
-  if [[ "$(jq -r '.lease == null' <<<"${lease_response}")" == "true" ]]; then
-    if [[ "${state}" == "consumed" ]]; then
-      echo "Pool consumed after ${invocation} Bazel invocations"
-      break
-    fi
+install_bazelisk() {
+  curl --fail --location --silent --show-error \
+    --output bazelisk \
+    https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64
+  curl --fail --location --silent --show-error \
+    --output bazelisk.sha256 \
+    https://github.com/bazelbuild/bazelisk/releases/download/v1.29.0/bazelisk-linux-amd64.sha256
+  echo "$(awk '{print $1}' bazelisk.sha256)  bazelisk" | sha256sum --check
+  chmod +x bazelisk
+}
 
-    empty_polls=$((empty_polls + 1))
-    sleep 10
-    continue
-  fi
+consume() {
+  local pool_id worker invocation empty_polls lease_response state lease_id
+  local initial_count retry_count all_statuses attempt_index bep statuses
+  local completions completion_body bazel_result
+  local -a labels bazel_args
 
+  pool_id="$(buildkite-agent meta-data get test-scheduler-pool-id)"
+  worker="$((BUILDKITE_PARALLEL_JOB + 1))"
+  invocation=0
   empty_polls=0
-  invocation=$((invocation + 1))
-  lease_id="$(jq -r .lease.id <<<"${lease_response}")"
-  attempt_index="$(jq -r '[.lease.attempts[].attempt_index] | unique | if length == 1 then .[0] else error("mixed attempt indexes in one lease") end' <<<"${lease_response}")"
-  mapfile -t labels < <(jq -r '.lease.attempts[].selector' <<<"${lease_response}")
+  state="unknown"
+  install_bazelisk
+  echo "Runner ${worker}/2 consuming pool ${pool_id}"
 
-  echo "Bazel invocation ${invocation}: attempt_index=${attempt_index}, targets=${#labels[@]}"
-  printf '  %s\n' "${labels[@]}"
+  # Stagger polling so both jobs do not make empty lease requests together.
+  sleep "$((BUILDKITE_PARALLEL_JOB * 2))"
 
-  bep="bep-${invocation}.json"
-  bazel_args=(test --test_output=errors --test_env="DEMO_ATTEMPT_INDEX=${attempt_index}" --build_event_json_file="${bep}")
-  if (( attempt_index > 0 )); then
-    bazel_args+=(--nocache_test_results)
-    echo "Retry invocation: --nocache_test_results enabled"
-  fi
-  ./bazelisk "${bazel_args[@]}" "${labels[@]}" || true
+  while (( empty_polls < 90 )); do
+    if ! lease_response="$(api POST "/pools/${pool_id}/leases" '{"lease_ttl_seconds":120}')"; then
+      echo "Runner ${worker}: lease request was rate limited or temporarily unavailable; retrying"
+      empty_polls=$((empty_polls + 1))
+      sleep 10
+      continue
+    fi
+    state="$(jq -r .pool.state <<<"${lease_response}")"
 
-  completions='[]'
-  while IFS= read -r attempt; do
-    attempt_id="$(jq -r .id <<<"${attempt}")"
-    selector="$(jq -r .selector <<<"${attempt}")"
-    status="$(jq -r --arg selector "${selector}" 'select(.id.testResult.label == $selector) | .testResult.status' "${bep}" | tail -1)"
+    if [[ "$(jq -r '.lease == null' <<<"${lease_response}")" == "true" ]]; then
+      if [[ "${state}" == "consumed" ]]; then
+        echo "Runner ${worker}: pool consumed after ${invocation} local Bazel invocations"
+        break
+      fi
 
-    if [[ "${status}" == "PASSED" ]]; then
-      result="passed"
-    else
-      result="failed"
+      empty_polls=$((empty_polls + 1))
+      echo "Runner ${worker}: no work yet (pool state ${state}); waiting for policy evaluation"
+      sleep 10
+      continue
     fi
 
-    echo "  complete ${selector}: bazel=${status:-missing} scheduler=${result}"
-    completions="$(jq -c --arg id "${attempt_id}" --arg result "${result}" '. + [{attempt_id:$id,result:$result}]' <<<"${completions}")"
-  done < <(jq -c '.lease.attempts[]' <<<"${lease_response}")
+    empty_polls=0
+    lease_id="$(jq -r .lease.id <<<"${lease_response}")"
+    initial_count="$(jq '[.lease.attempts[] | select(.attempt_index == 0)] | length' <<<"${lease_response}")"
+    retry_count="$(jq '[.lease.attempts[] | select(.attempt_index > 0)] | length' <<<"${lease_response}")"
+    echo "Runner ${worker}: leased $(jq '.lease.attempts | length' <<<"${lease_response}") targets (initial=${initial_count}, retry=${retry_count})"
 
-  completion_body="$(jq -nc --arg lease_id "${lease_id}" --argjson attempts "${completions}" '{leases:[{lease_id:$lease_id,attempts:$attempts}]}')"
-  api POST "/pools/${pool_id}/leases/complete" "${completion_body}" >/dev/null
+    # A lease may contain both initial attempts and retries. Bazel needs one
+    # invocation per attempt index so each target gets the correct test input.
+    all_statuses='{}'
+    while IFS= read -r attempt_index; do
+      mapfile -t labels < <(jq -r --argjson attempt_index "${attempt_index}" \
+        '.lease.attempts[] | select(.attempt_index == $attempt_index) | .selector' <<<"${lease_response}")
+      invocation=$((invocation + 1))
+      bep="bep-runner-${worker}-${invocation}.json"
+      bazel_args=(test --test_output=errors --test_env="DEMO_ATTEMPT_INDEX=${attempt_index}" --build_event_json_file="${bep}")
 
-  # Policy evaluation is asynchronous, and empty lease polls are rate limited.
-  sleep 10
-done
+      if (( attempt_index > 0 )); then
+        bazel_args+=(--nocache_test_results)
+        echo "Runner ${worker}, invocation ${invocation}: RETRY attempt=${attempt_index}, targets=${#labels[@]}, --nocache_test_results enabled"
+      else
+        echo "Runner ${worker}, invocation ${invocation}: INITIAL attempt=${attempt_index}, targets=${#labels[@]}"
+      fi
 
-if [[ "${state}" != "consumed" ]]; then
-  echo "Pool did not reach consumed state before the poll limit" >&2
-  exit 1
-fi
+      bazel_result=0
+      ./bazelisk "${bazel_args[@]}" "${labels[@]}" || bazel_result=$?
+      statuses="$(jq -sc '
+        map(select(.id.testResult.label))
+        | group_by(.id.testResult.label)
+        | map({key:.[0].id.testResult.label,value:.[-1].testResult.status})
+        | from_entries' "${bep}")"
+      all_statuses="$(jq -c --argjson statuses "${statuses}" '. + $statuses' <<<"${all_statuses}")"
+      echo "Runner ${worker}, invocation ${invocation}: Bazel exit=${bazel_result}, results=$(jq -c 'group_by(.) | map({(.[0]):length}) | add' <<<"$(jq '[.[]]' <<<"${statuses}")")"
+    done < <(jq -r '[.lease.attempts[].attempt_index] | unique[]' <<<"${lease_response}")
 
-metrics="$(api GET "/pools/${pool_id}/metrics")"
-echo "Final pool metrics: $(jq -c . <<<"${metrics}")"
+    completions="$(jq -c --argjson statuses "${all_statuses}" '[
+      .lease.attempts[] |
+      {attempt_id:.id,result:(if $statuses[.selector] == "PASSED" then "passed" else "failed" end)}
+    ]' <<<"${lease_response}")"
+    completion_body="$(jq -nc --arg lease_id "${lease_id}" --argjson attempts "${completions}" '{leases:[{lease_id:$lease_id,attempts:$attempts}]}')"
+    api POST "/pools/${pool_id}/leases/complete" "${completion_body}" >/dev/null
+    echo "Runner ${worker}: completed lease ${lease_id} with $(jq '[.[] | select(.result == "passed")] | length' <<<"${completions}") passed and $(jq '[.[] | select(.result == "failed")] | length' <<<"${completions}") failed"
 
-if [[ "${invocation}" != "2" ]]; then
-  echo "Expected exactly two Bazel invocations (initial + failed-target retry), got ${invocation}" >&2
-  exit 1
-fi
+    # Policy evaluation is asynchronous, and empty lease polls are rate limited.
+    sleep 10
+  done
+
+  if [[ "${state}" != "consumed" ]]; then
+    echo "Runner ${worker}: pool did not reach consumed state before the poll limit" >&2
+    exit 1
+  fi
+}
+
+verify() {
+  local pool_id metrics
+
+  pool_id="$(buildkite-agent meta-data get test-scheduler-pool-id)"
+  metrics="$(api GET "/pools/${pool_id}/metrics")"
+  echo "Final pool metrics: $(jq -c . <<<"${metrics}")"
+
+  jq -e \
+    --argjson targets "${target_count}" \
+    --argjson failures "${expected_failures}" \
+    '.pool.state == "consumed"
+      and .pool.drained
+      and .entries.total == $targets
+      and .attempts.total == ($targets + $failures)
+      and .attempts.states.completed.count == ($targets + $failures)
+      and .attempts.states.waiting.count == 0
+      and .attempts.states.leased.count == 0
+      and .attempts.results.passed == $targets
+      and .attempts.results.failed == $failures' <<<"${metrics}" >/dev/null
+
+  echo "Verified ${target_count} initial attempts and ${expected_failures} policy-generated retries"
+  echo "Verified final results: ${target_count} passed attempts, ${expected_failures} intentional failed attempts"
+}
+
+case "${1:-}" in
+  setup) setup ;;
+  consume) consume ;;
+  verify) verify ;;
+  *)
+    echo "Usage: $0 {setup|consume|verify}" >&2
+    exit 2
+    ;;
+esac

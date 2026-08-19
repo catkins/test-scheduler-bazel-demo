@@ -1,6 +1,21 @@
 steps:
-  - label: ":bazel: Test Scheduler + Bazel end-to-end"
-    key: "scheduler-bazel"
-    command: ".buildkite/run-demo.sh"
+  - label: ":test-engine: Create 1,000-target pool"
+    key: "setup"
+    command: ".buildkite/run-demo.sh setup"
+    agents:
+      queue: "hosted"
+
+  - label: ":bazel: Scheduler runner %n"
+    key: "scheduler-runners"
+    command: ".buildkite/run-demo.sh consume"
+    depends_on: "setup"
+    parallelism: 2
+    agents:
+      queue: "hosted"
+
+  - label: ":white_check_mark: Verify scheduling policy"
+    key: "verify"
+    command: ".buildkite/run-demo.sh verify"
+    depends_on: "scheduler-runners"
     agents:
       queue: "hosted"
