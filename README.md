@@ -10,8 +10,8 @@ The pipeline:
 2. uses one Buildkite job to acquire and heartbeat every 300-attempt lease
    needed to hold all 5,000 initial attempts;
 3. sends one cacheable, 1,000-target Bazel invocation with `--runs_per_test=5`,
-   leaving all 5,000 test-action executions to Bazel Remote Execution in a real
-   deployment;
+   using `--jobs=5000` to submit all 5,000 test-action executions to Bazel
+   Remote Execution together;
 4. reports every initial Build Event Protocol result to Test Scheduler, then leases
    policy-generated retries in separate Bazel invocations with
    `--nocache_test_results`; and

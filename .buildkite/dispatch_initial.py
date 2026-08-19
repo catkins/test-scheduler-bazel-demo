@@ -2,6 +2,7 @@
 """Lease and dispatch every initial attempt from one durable coordinator job."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import threading
@@ -118,14 +119,15 @@ def main() -> None:
     heartbeat_thread.start()
     bep = Path("bep-initial.json")
     try:
+        jobs = EXPECTED_ATTEMPTS if os.environ.get("BUILDBUDDY_API_KEY") else 20
         print(
             f"Sending all {TARGET_COUNT} targets to one Bazel invocation with "
-            f"--runs_per_test={INITIAL_ATTEMPTS}"
+            f"--runs_per_test={INITIAL_ATTEMPTS} and --jobs={jobs}"
         )
         result = subprocess.run(
             bazel.command()
             + [
-                "--jobs=20",
+                f"--jobs={jobs}",
                 f"--runs_per_test={INITIAL_ATTEMPTS}",
                 "--test_output=errors",
                 f"--build_event_json_file={bep}",
