@@ -6,8 +6,8 @@ import os
 from test_scheduler_client import SUITE, configure_auth, metadata, request
 
 
-TARGET_COUNT = 1_000
-QUALIFICATION_START = 900
+TARGET_COUNT = 100
+QUALIFICATION_START = 90
 
 
 def main() -> None:

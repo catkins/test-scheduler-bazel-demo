@@ -12,10 +12,10 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
-TARGET_COUNT = 1_000
+TARGET_COUNT = 100
 DEFAULT_INITIAL_ATTEMPTS = 5
 QUALIFICATION_INITIAL_ATTEMPTS = 10
-QUALIFICATION_START = 900
+QUALIFICATION_START = 90
 QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
 COMPLETION_MAX_ATTEMPTS = 5_000
 EXPECTED_ATTEMPTS = (
@@ -164,8 +164,9 @@ def main() -> None:
             bazel.command()
             + [
                 f"--jobs={jobs}",
+                "--cache_test_results=yes",
                 f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
-                "--runs_per_test=//demo:target_9[0-9][0-9]@10",
+                "--runs_per_test=//demo:target_9[0-9]@10",
                 "--test_output=errors",
                 f"--build_event_json_file={bep}",
                 *labels,

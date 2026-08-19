@@ -4,7 +4,7 @@ This repository shows how Buildkite Test Scheduler can control a large Bazel
 test workload. The example uses BuildBuddy for Bazel Remote Execution. It
 models a large remote-execution workflow.
 
-The demo has 1,000 Bazel targets. Each target runs one pytest test. Each test
+The demo has 100 Bazel targets. Each target runs one pytest test. Each test
 sleeps for 10 ms and then passes or fails.
 
 ## What the demo shows
@@ -12,10 +12,10 @@ sleeps for 10 ms and then passes or fails.
 The pipeline does these tasks:
 
 1. It creates a Test Scheduler pool.
-2. It adds 1,000 targets to the pool.
+2. It adds 100 targets to the pool.
 3. It applies one of two policies to each target.
 4. It seals the pool.
-5. It leases all 5,500 initial attempts in one Buildkite job.
+5. It leases all 550 initial attempts in one Buildkite job.
 6. It sends all initial attempts to BuildBuddy in one Bazel invocation.
 7. It sends the results to Test Scheduler.
 8. It uses five Buildkite jobs to consume retries.
@@ -28,23 +28,23 @@ the pool is created.
 
 | Policy | Targets | Initial attempts per target | Required result | Maximum attempts |
 | --- | ---: | ---: | --- | ---: |
-| `default` | 900 | 5 | 5 passes | 6 |
-| `qualification` | 100 | 10 | 10 passes | 10 |
+| `default` | 90 | 5 | 5 passes | 6 |
+| `qualification` | 10 | 10 | 10 passes | 10 |
 
-One hundred targets in the `default` group fail their first attempt. They pass
+Ten targets in the `default` group fail their first attempt. They pass
 their other initial attempts. Test Scheduler creates one retry for each of
 these targets.
 
-All targets in the `qualification` group pass. Each target must pass ten times.
+All ten targets in the `qualification` group pass. Each target must pass ten times.
 This group does not need retries.
 
 The expected totals are:
 
-- 5,500 initial executions
-- 100 retry executions
-- 5,600 completed executions
-- 5,500 passed attempts
-- 100 intentional failed attempts
+- 550 initial executions
+- 10 retry executions
+- 560 completed executions
+- 550 passed attempts
+- 10 intentional failed attempts
 
 ## Build graph
 
@@ -53,8 +53,8 @@ parallel jobs. The verification job starts after all retry jobs finish.
 
 ```mermaid
 flowchart LR
-    setup["Create and seal pool<br/>1,000 entries"]
-    initial["Dispatch initial attempts<br/>1 job · 5,500 executions"]
+    setup["Create and seal pool<br/>100 entries"]
+    initial["Dispatch initial attempts<br/>1 job · 550 executions"]
     retry1["Retry consumer 1"]
     retry2["Retry consumer 2"]
     retry3["Retry consumer 3"]
@@ -91,25 +91,22 @@ sequenceDiagram
     participant V as Verification job
 
     S->>TS: Create pool with two policies
-    loop 10 uploads of 100 entries
-        S->>TS: Add entries with a policy key
-    end
+    S->>TS: Add 100 entries with policy keys
     S->>TS: Seal pool
 
-    loop Until all 5,500 initial attempts are held
+    loop Until all 550 initial attempts are held
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
     loop While Bazel runs
         D->>TS: Heartbeat all leases
     end
-    D->>BB: Run 1,000 targets with 5 or 10 runs per target
+    D->>BB: Run 100 targets with 5 or 10 runs per target
     BB-->>D: Return Build Event Protocol results
-    D->>TS: Complete 5,000 attempts
-    D->>TS: Complete 500 attempts
+    D->>TS: Complete 550 attempts
 
     TS->>TS: Evaluate each entry policy
-    TS->>TS: Create 100 retries
+    TS->>TS: Create 10 retries
 
     par Five Buildkite jobs poll the pool
         R->>TS: Lease retries
@@ -127,16 +124,16 @@ sequenceDiagram
 
 The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=5`
 for the `default` targets. It uses `--runs_per_test=10` for the
-`qualification` targets. It sets `--jobs=5500` so that Bazel can submit all
+`qualification` targets. It sets `--jobs=550` so that Bazel can submit all
 initial actions without a small local concurrency limit.
 
-Initial runs can use the Bazel test-result cache. Retry runs use
+Initial runs use `--cache_test_results=yes`. This setting lets Bazel use cached
+results when `--runs_per_test` requests multiple runs. Retry runs use
 `--nocache_test_results`. This setting makes each retry execute again.
 
 The dispatcher reads the Bazel Build Event Protocol file. It matches each
-result to a Test Scheduler attempt. The completion API accepts at most 5,000
-attempts in one request. The dispatcher therefore sends the 5,500 initial
-results in two requests.
+result to a Test Scheduler attempt. The dispatcher sends all 550 initial
+results in one completion request.
 
 The Buildkite job owns the Test Scheduler leases. Remote Bazel actions do not
 receive Buildkite credentials or the BuildBuddy API key.
@@ -192,8 +189,8 @@ uv run --frozen python <script>
 | `.buildkite/consume_pool.py` | Leases and runs policy-generated retries. |
 | `.buildkite/verify_pool.py` | Checks the final pool metrics. |
 | `.buildkite/test_scheduler_client.py` | Sends authenticated API requests. |
-| `demo/test_demo.py` | Defines the 1,000 pytest tests. |
-| `demo/BUILD.bazel` | Defines the 1,000 Bazel test targets. |
+| `demo/test_demo.py` | Defines the 100 pytest tests. |
+| `demo/BUILD.bazel` | Defines the 100 Bazel test targets. |
 
 ## Update Python dependencies
 

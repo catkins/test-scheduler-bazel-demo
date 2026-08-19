@@ -10,7 +10,7 @@ def _test_target(index: int) -> None:
     )
     time.sleep(0.01)
 
-    assert index >= 900 or index % 9 != 0 or attempt > 0, (
+    assert index >= 90 or index % 9 != 0 or attempt > 0, (
         f"target {index} intentionally fails scheduler attempt {attempt}"
     )
 
@@ -24,7 +24,7 @@ def _make_test(index: int):
     return test_target
 
 
-for _index in range(1000):
+for _index in range(100):
     globals()[f"test_target_{_index}"] = _make_test(_index)
 
 del _index

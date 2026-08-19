@@ -1,5 +1,5 @@
 steps:
-  - label: ":test_tube: Create 1,000-target pool"
+  - label: ":test_tube: Create 100-target pool"
     key: "setup"
     command: mise run scheduler-setup
     plugins:
