@@ -19,7 +19,7 @@ def main() -> None:
             "pipeline": os.environ["BUILDKITE_PIPELINE_SLUG"],
             "build_id": os.environ["BUILDKITE_BUILD_ID"],
             "key": f"bazel-demo-{os.environ['BUILDKITE_BUILD_ID']}",
-            "ttl_seconds": 1_800,
+            "ttl_seconds": 3_600,
             "lease": {"costs": {"custom": 300}, "max_attempts": 300},
             "attempt_policy": {
                 "max_attempts": 6,

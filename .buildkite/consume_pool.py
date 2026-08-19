@@ -110,6 +110,8 @@ def main() -> None:
 
         empty_polls = 0
         attempts = lease["attempts"]
+        if any(attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts):
+            raise RuntimeError("Retry consumer received an unfinished initial attempt")
         initial_count = sum(
             attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts
         )

@@ -11,6 +11,10 @@ run = "uv run --frozen python .buildkite/setup_pool.py"
 description = "Lease and run Bazel targets from the Test Scheduler pool"
 run = "uv run --frozen python .buildkite/consume_pool.py"
 
+[tasks.dispatch-initial]
+description = "Lease and dispatch all initial attempts from one coordinator"
+run = "uv run --frozen python .buildkite/dispatch_initial.py"
+
 [tasks.scheduler-verify]
 description = "Verify the final Test Scheduler pool metrics"
 run = "uv run --frozen python .buildkite/verify_pool.py"

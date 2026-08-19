@@ -7,10 +7,12 @@ The pipeline:
 
 1. creates 1,000 distinct Bazel test targets and uploads one Test Scheduler
    pool entry per target, in API-sized batches of 100;
-2. runs five parallel Buildkite scheduler jobs, each leasing at most 300
-   targets at a time;
-3. reports each target's Build Event Protocol result to Test Scheduler;
-4. runs five cacheable initial attempts per target, then leases
+2. uses one Buildkite job to acquire and heartbeat every 300-attempt lease
+   needed to hold all 5,000 initial attempts;
+3. sends one cacheable, 1,000-target Bazel invocation with `--runs_per_test=5`,
+   leaving all 5,000 test-action executions to Bazel Remote Execution in a real
+   deployment;
+4. reports every initial Build Event Protocol result to Test Scheduler, then leases
    policy-generated retries in separate Bazel invocations with
    `--nocache_test_results`; and
 5. verifies the pool is consumed with the expected entry, attempt, and result
@@ -22,9 +24,9 @@ environment and uploads its result with `buildkite-test-collector`. Each test
 sleeps for 10 ms. Every tenth target intentionally fails its first initial
 attempt and passes its other four. The five-pass policy gives those targets one
 retry. This produces 5,000 initial attempts and 100 policy-generated retries,
-while keeping the workload deterministic. The scheduler also materializes and
-cancels 900 speculative sixth attempts as the five parallel initial results
-arrive; those attempts are never leased or executed.
+while keeping the workload deterministic. The coordinator completes all initial
+leases atomically after the full-target Bazel invocation finishes. If its
+agent is lost, Buildkite retries the job and expired leases return to the pool.
 
 Test Engine and Test Scheduler both authenticate with the same short-lived
 Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`
@@ -35,8 +37,9 @@ mise-managed tool environment.
 
 The example uses local Bazel execution. It models the orchestration intended
 for customer's Bazel remote execution integration: a setup job populates and
-seals the pool, five simple consumers drain it, and failed targets return as
-separate retry invocations. It does not configure EngFlow or a remote cache.
+seals the pool, one coordinator sends the full target set to Bazel, and five
+simple retry consumers drain only policy-generated failures. It does not
+configure EngFlow or a remote cache.
 
 ## Buildkite resources
 

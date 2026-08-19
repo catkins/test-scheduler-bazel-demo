@@ -3,7 +3,11 @@ import time
 
 
 def _test_target(index: int) -> None:
-    attempt = int(os.environ.get("DEMO_ATTEMPT_INDEX", "0"))
+    attempt = int(
+        os.environ.get(
+            "DEMO_ATTEMPT_INDEX", str(int(os.environ.get("TEST_RUN_NUMBER", "1")) - 1)
+        )
+    )
     time.sleep(0.01)
 
     assert index % 10 != 0 or attempt > 0, (

@@ -8,10 +8,24 @@ steps:
     agents:
       queue: "hosted"
 
-  - label: ":bazel: Scheduler runner %n"
-    key: "scheduler-runners"
-    command: mise run scheduler-consume
+  - label: ":bazel: Dispatch all initial targets"
+    key: "dispatch-initial"
+    command: mise run dispatch-initial
     depends_on: "setup"
+    retry:
+      automatic:
+        - exit_status: -1
+          limit: 2
+    plugins:
+      - mise#v1.1.4:
+          version: 2026.7.6
+    agents:
+      queue: "hosted"
+
+  - label: ":repeat: Retry runner %n"
+    key: "retry-runners"
+    command: mise run scheduler-consume
+    depends_on: "dispatch-initial"
     parallelism: 5
     plugins:
       - mise#v1.1.4:
@@ -22,7 +36,7 @@ steps:
   - label: ":white_check_mark: Verify scheduling policy"
     key: "verify"
     command: mise run scheduler-verify
-    depends_on: "scheduler-runners"
+    depends_on: "retry-runners"
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6
