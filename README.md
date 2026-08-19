@@ -117,8 +117,10 @@ metadata. Later jobs read the ID from that metadata.
 | Completion request limit | 5,000 attempts | Sets the maximum result batch size in the client. |
 
 Each initial attempt costs one unit. One lease can therefore hold at most 300
-attempts. The dispatcher normally uses one 300-attempt lease and one
-290-attempt lease for the 590 initial attempts.
+attempts. The 590 initial attempts need more than one lease. Test Scheduler
+chooses the exact split. In a verified run, it returned one 300-attempt lease,
+one 200-attempt lease, and nine 10-attempt leases. The dispatcher keeps leasing
+until it holds all 590 attempts, so it does not depend on this exact split.
 
 ## Build graph
 
