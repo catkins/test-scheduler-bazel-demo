@@ -12,9 +12,9 @@ def _test_target(index: int) -> None:
     )
     time.sleep(0.01)
 
-    # Ten default-policy targets fail attempt zero and pass later attempts.
-    # Qualification targets 90-99 always pass all ten runs.
-    assert index >= 90 or index % 9 != 0 or attempt > 0, (
+    # Default targets 0-9 fail attempt zero and pass their retry.
+    # All other default targets and qualification targets always pass.
+    assert index >= 10 or attempt > 0, (
         f"target {index} intentionally fails scheduler attempt {attempt}"
     )
 
@@ -28,7 +28,7 @@ def _make_test(index: int):
     return test_target
 
 
-for _index in range(100):
+for _index in range(500):
     globals()[f"test_target_{_index}"] = _make_test(_index)
 
 del _index

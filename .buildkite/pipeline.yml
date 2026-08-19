@@ -8,7 +8,7 @@ secrets:
 cache: ".buildkite/cache-volume"
 
 steps:
-  - label: ":test_tube: Create 100-target pool"
+  - label: ":test_tube: Create 500-target pool"
     key: "setup"
     command: mise run scheduler-setup
     plugins:

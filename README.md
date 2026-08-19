@@ -4,7 +4,7 @@ This repository shows how Buildkite Test Scheduler can control a large Bazel
 test workload. The example uses BuildBuddy for Bazel Remote Execution. It
 models a large remote-execution workflow.
 
-The demo has 100 Bazel targets. Each target runs one pytest test. Each test
+The demo has 500 Bazel targets. Each target runs one pytest test. Each test
 sleeps for 10 ms and then passes or fails.
 
 ## Responsibilities
@@ -39,10 +39,10 @@ receives the files and environment values that Bazel declares for that action.
 The pipeline does these tasks:
 
 1. The setup job creates a Test Scheduler pool.
-2. The setup job adds 100 targets to the pool.
+2. The setup job adds 500 targets to the pool.
 3. Each target selects one of two policies.
 4. The setup job seals the pool.
-5. The initial dispatcher leases all 190 initial attempts.
+5. The initial dispatcher leases all 590 initial attempts.
 6. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
    invocation.
 7. The dispatcher sends the results to Test Scheduler.
@@ -56,7 +56,7 @@ the pool is created.
 
 | Policy | Targets | Initial attempts per target | Required result | Maximum attempts |
 | --- | ---: | ---: | --- | ---: |
-| `default` | 90 | 1 | 1 pass | 2 |
+| `default` | 490 | 1 | 1 pass | 2 |
 | `qualification` | 10 | 10 | 10 passes | 10 |
 
 Ten targets in the `default` group fail their initial attempt. Test Scheduler
@@ -79,18 +79,18 @@ do not change after the pool is created.
 
 The expected totals are:
 
-- 190 initial executions
+- 590 initial executions
 - 10 retry executions
-- 200 completed executions
-- 190 passed attempts
+- 600 completed executions
+- 590 passed attempts
 - 10 intentional failed attempts
 
 ## Pool lifecycle
 
 The setup job creates the pool in the `populating` state. The pool accepts
-entries only in this state. The setup job adds all 100 entries in one request.
-It then sets `populating` to false. This action seals the pool and makes the
-initial attempts available for leases.
+entries only in this state. The setup job adds all 500 entries in five requests
+of 100 entries. It then sets `populating` to false. This action seals the pool
+and makes the initial attempts available for leases.
 
 The pool is `consuming` while attempts are waiting, leased, or under policy
 evaluation. An entry is finished when its selected policy decides that it
@@ -115,7 +115,8 @@ metadata. Later jobs read the ID from that metadata.
 | Completion request limit | 5,000 attempts | Sets the maximum result batch size in the client. |
 
 Each initial attempt costs one unit. One lease can therefore hold at most 300
-attempts. The dispatcher normally holds all 190 initial attempts in one lease.
+attempts. The dispatcher normally uses one 300-attempt lease and one
+290-attempt lease for the 590 initial attempts.
 
 ## Build graph
 
@@ -125,8 +126,8 @@ starts after the consumer succeeds.
 
 ```mermaid
 flowchart LR
-    setup["Create and seal pool<br/>100 entries"]
-    initial["Dispatch initial attempts<br/>1 job · 190 executions"]
+    setup["Create and seal pool<br/>500 entries"]
+    initial["Dispatch initial attempts<br/>1 job · 590 executions"]
     retry["Consume retries<br/>1 job · 10 executions"]
     verify["Verify pool<br/>state and counts"]
 
@@ -161,19 +162,19 @@ sequenceDiagram
     participant V as Verification job
 
     S->>TS: Create pool with two policies
-    S->>TS: Add 100 entries with policy keys
+    S->>TS: Add 500 entries with policy keys
     S->>TS: Seal pool
 
-    loop Until all 190 initial attempts are held
+    loop Until all 590 initial attempts are held
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
-    D->>+BB: Start 100 targets with 1 or 10 runs per target
+    D->>+BB: Start 500 targets with 1 or 10 runs per target
     loop Every 60 seconds while Bazel runs
         D->>TS: Heartbeat all leases
     end
     BB-->>-D: Return Build Event Protocol results
-    D->>TS: Complete 190 attempts
+    D->>TS: Complete 590 attempts
 
     TS->>TS: Evaluate each entry policy
     TS->>TS: Create 10 retries
@@ -191,7 +192,7 @@ sequenceDiagram
 ## Bazel execution
 
 The dispatcher requests initial leases sequentially. Each request can return up
-to 300 attempts. The dispatcher does not start Bazel until it holds all 190
+to 300 attempts. The dispatcher does not start Bazel until it holds all 590
 initial attempts. This loop drains only the initial queue. Test Scheduler
 creates retries after it receives the initial results.
 
@@ -201,7 +202,7 @@ across its workers. The lease requests do not run in parallel.
 
 The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=1`
 for the `default` targets. It uses `--runs_per_test=10` for the
-`qualification` targets. It sets `--jobs=190` so that Bazel can submit all
+`qualification` targets. It sets `--jobs=590` so that Bazel can submit all
 initial actions without a small local concurrency limit.
 
 Initial runs use `--cache_test_results=yes`. This setting lets Bazel use cached
@@ -215,7 +216,7 @@ requires remote execution for all initial actions. A cold cache has no stored
 result for the requested action.
 
 The dispatcher reads the Bazel Build Event Protocol file. It matches each
-result to a Test Scheduler attempt. The dispatcher sends all 190 initial
+result to a Test Scheduler attempt. The dispatcher sends all 590 initial
 results in one completion request.
 
 Bazel numbers runs from one. Test Scheduler numbers attempts from zero. The
@@ -232,7 +233,7 @@ receive Buildkite credentials or the BuildBuddy API key.
 ## Retry consumption
 
 The initial dispatcher finishes before the retry consumer starts. Test
-Scheduler evaluates the 100 entries after it receives the initial results. It
+Scheduler evaluates the 500 entries after it receives the initial results. It
 creates ten retries for the ten entries that have no pass.
 
 The consumer waits for a lease. It can lease all ten retries in one request.
@@ -331,8 +332,8 @@ uv run --frozen python <script>
 | `.buildkite/consume_pool.py` | Leases and runs policy-generated retries. |
 | `.buildkite/verify_pool.py` | Checks the final pool metrics. |
 | `.buildkite/test_scheduler_client.py` | Sends authenticated API requests. |
-| `demo/test_demo.py` | Defines the 100 pytest tests. |
-| `demo/BUILD.bazel` | Defines the 100 Bazel test targets. |
+| `demo/test_demo.py` | Defines the 500 pytest tests. |
+| `demo/BUILD.bazel` | Defines the 500 Bazel test targets. |
 
 ## Update Python dependencies
 

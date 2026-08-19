@@ -12,11 +12,11 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
-TARGET_COUNT = 100
+TARGET_COUNT = 500
 DEFAULT_INITIAL_ATTEMPTS = 1
 QUALIFICATION_INITIAL_ATTEMPTS = 10
 # The final ten labels use the qualification policy and ten Bazel runs.
-QUALIFICATION_START = 90
+QUALIFICATION_START = 490
 QUALIFICATION_TARGET_COUNT = TARGET_COUNT - QUALIFICATION_START
 # The completion API accepts at most 5,000 attempts in one request.
 COMPLETION_MAX_ATTEMPTS = 5_000
@@ -183,7 +183,7 @@ def main() -> None:
                 # runs_per_test is greater than one. Force cache use here.
                 "--cache_test_results=yes",
                 f"--runs_per_test={DEFAULT_INITIAL_ATTEMPTS}",
-                "--runs_per_test=//demo:target_9[0-9]@10",
+                "--runs_per_test=//demo:target_49[0-9]@10",
                 "--test_output=errors",
                 f"--build_event_json_file={bep}",
                 *labels,
@@ -225,7 +225,7 @@ def main() -> None:
         }
         for lease in leases
     ]
-    # The current 190-attempt workload fits in one request. Keep batching so a
+    # The current 590-attempt workload fits in one request. Keep batching so a
     # larger workload still respects the 5,000-attempt API limit.
     for batch_number, batch in enumerate(completion_batches(completions), start=1):
         batch_attempt_count = sum(len(completion["attempts"]) for completion in batch)
