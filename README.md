@@ -7,7 +7,7 @@ The pipeline:
 
 1. creates 1,000 distinct Bazel test targets and uploads one Test Scheduler
    pool entry per target, in API-sized batches of 100;
-2. runs exactly two parallel Buildkite scheduler jobs, each leasing at most 300
+2. runs five parallel Buildkite scheduler jobs, each leasing at most 300
    targets at a time;
 3. reports each target's Build Event Protocol result to Test Scheduler;
 4. runs five cacheable initial attempts per target, then leases
@@ -35,7 +35,7 @@ mise-managed tool environment.
 
 The example uses local Bazel execution. It models the orchestration intended
 for customer's Bazel remote execution integration: a setup job populates and
-seals the pool, two simple consumers drain it, and failed targets return as
+seals the pool, five simple consumers drain it, and failed targets return as
 separate retry invocations. It does not configure EngFlow or a remote cache.
 
 ## Buildkite resources

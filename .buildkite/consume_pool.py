@@ -73,10 +73,11 @@ def main() -> None:
     configure_auth()
     pool_id = metadata("get")
     worker = int(os.environ["BUILDKITE_PARALLEL_JOB"]) + 1
+    worker_count = int(os.environ["BUILDKITE_PARALLEL_JOB_COUNT"])
     invocation = 0
     empty_polls = 0
     state = "unknown"
-    print(f"Runner {worker}/2 consuming pool {pool_id}")
+    print(f"Runner {worker}/{worker_count} consuming pool {pool_id}")
     time.sleep((worker - 1) * 2)
 
     while empty_polls < 90:

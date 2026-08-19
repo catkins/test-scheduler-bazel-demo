@@ -12,7 +12,7 @@ steps:
     key: "scheduler-runners"
     command: mise run scheduler-consume
     depends_on: "setup"
-    parallelism: 2
+    parallelism: 5
     plugins:
       - mise#v1.1.4:
           version: 2026.7.6
