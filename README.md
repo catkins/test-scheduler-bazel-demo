@@ -373,11 +373,18 @@ uv run --frozen python <script>
 
 ## Update Python dependencies
 
-After you change Python dependencies, run this command:
+`uv.lock` contains dependencies for the orchestration scripts and local tools.
+The pipeline uses this lock through `uv run --frozen`.
+
+`requirements_lock.txt` contains only the Python packages needed inside Bazel
+test actions. It does not include orchestration packages such as
+`buildkite-sdk` or `httpx`.
+
+After you change a Bazel test dependency, run this command:
 
 ```shell
 mise run lock-bazel
 ```
 
-This command exports the uv lock data to `requirements_lock.txt`.
-`rules_python` uses this file for the Bazel dependency lock.
+This command exports the test dependency group to `requirements_lock.txt`.
+`rules_python` uses this file for the hermetic Bazel test environment.
