@@ -12,9 +12,8 @@ import bazel
 from test_scheduler_client import configure_auth, metadata, request
 
 
-# Default-policy retries start at index five. Qualification entries do not
-# retry in this demo because all ten qualification runs pass.
-INITIAL_ATTEMPTS = 5
+DEFAULT_INITIAL_ATTEMPTS = 1
+QUALIFICATION_INITIAL_ATTEMPTS = 10
 # EX_TEMPFAIL tells Buildkite that a replacement consumer can safely try again.
 EX_TEMPFAIL = 75
 
@@ -24,6 +23,13 @@ def is_temporary_http_error(error: httpx.HTTPError) -> bool:
     if not isinstance(error, httpx.HTTPStatusError):
         return True
     return error.response.status_code in {408, 429} or error.response.status_code >= 500
+
+
+def initial_attempts_for(attempt: dict) -> int:
+    """Return the initial allocation for the attempt's policy."""
+    if attempt["meta_data"]["attempt_policy"] == "qualification":
+        return QUALIFICATION_INITIAL_ATTEMPTS
+    return DEFAULT_INITIAL_ATTEMPTS
 
 
 def read_bep(path: Path) -> dict[str, str]:
@@ -47,14 +53,12 @@ def run_attempts(
         "--test_output=errors",
         f"--test_env=DEMO_ATTEMPT_INDEX={attempt_index}",
         f"--build_event_json_file={bep}",
+        # The consumer runs only policy-generated retries. Do not return the
+        # cached result from the failed initial attempt.
+        "--nocache_test_results",
     ]
-    kind = "INITIAL"
-    if attempt_index >= INITIAL_ATTEMPTS:
-        # A retry must execute again even when the initial result is cached.
-        args.append("--nocache_test_results")
-        kind = "RETRY (--nocache_test_results enabled)"
     print(
-        f"Retry invocation {invocation}: {kind} "
+        f"Retry invocation {invocation}: "
         f"attempt={attempt_index}, targets={len(labels)}"
     )
 
@@ -112,15 +116,12 @@ def main() -> None:
         attempts = lease["attempts"]
         # The dispatcher must finish every initial attempt before this step.
         # Fail if a retry consumer crosses that ownership boundary.
-        if any(attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts):
+        if any(
+            attempt["attempt_index"] < initial_attempts_for(attempt)
+            for attempt in attempts
+        ):
             raise RuntimeError("Retry consumer received an unfinished initial attempt")
-        initial_count = sum(
-            attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts
-        )
-        print(
-            f"Leased {len(attempts)} targets "
-            f"(initial={initial_count}, retry={len(attempts) - initial_count})"
-        )
+        print(f"Leased {len(attempts)} retry targets")
 
         all_statuses: dict[str, str] = {}
         # DEMO_ATTEMPT_INDEX applies to one Bazel invocation. Keep attempts

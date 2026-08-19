@@ -42,7 +42,7 @@ The pipeline does these tasks:
 2. The setup job adds 100 targets to the pool.
 3. Each target selects one of two policies.
 4. The setup job seals the pool.
-5. The initial dispatcher leases all 550 initial attempts.
+5. The initial dispatcher leases all 190 initial attempts.
 6. The dispatcher sends all initial attempts to BuildBuddy in one Bazel
    invocation.
 7. The dispatcher sends the results to Test Scheduler.
@@ -56,19 +56,18 @@ the pool is created.
 
 | Policy | Targets | Initial attempts per target | Required result | Maximum attempts |
 | --- | ---: | ---: | --- | ---: |
-| `default` | 90 | 5 | 5 passes | 6 |
+| `default` | 90 | 1 | 1 pass | 2 |
 | `qualification` | 10 | 10 | 10 passes | 10 |
 
-Ten targets in the `default` group fail their first attempt. They pass
-their other initial attempts. Test Scheduler creates one retry for each of
-these targets.
+Ten targets in the `default` group fail their initial attempt. Test Scheduler
+creates one retry for each of these targets. The retries pass.
 
 All ten targets in the `qualification` group pass. Each target must pass ten
 times. This group does not need retries.
 
-The `default` policy creates five attempts immediately. It requires five
-passes. It permits six total attempts. It also permits one failure before the
-entry stops. An entry with one initial failure therefore gets one retry.
+The `default` policy creates one attempt immediately. It requires one pass. It
+permits two total attempts. It also permits one failure before the entry stops.
+An entry with one initial failure therefore gets one retry.
 
 The `qualification` policy creates ten attempts immediately. It requires ten
 passes and permits only ten total attempts. Its `max_failed` value is one. One
@@ -80,10 +79,10 @@ do not change after the pool is created.
 
 The expected totals are:
 
-- 550 initial executions
+- 190 initial executions
 - 10 retry executions
-- 560 completed executions
-- 550 passed attempts
+- 200 completed executions
+- 190 passed attempts
 - 10 intentional failed attempts
 
 ## Pool lifecycle
@@ -116,8 +115,7 @@ metadata. Later jobs read the ID from that metadata.
 | Completion request limit | 5,000 attempts | Sets the maximum result batch size in the client. |
 
 Each initial attempt costs one unit. One lease can therefore hold at most 300
-attempts. The dispatcher normally uses one 300-attempt lease and one
-250-attempt lease for the 550 initial attempts.
+attempts. The dispatcher normally holds all 190 initial attempts in one lease.
 
 ## Build graph
 
@@ -128,7 +126,7 @@ starts after the consumer succeeds.
 ```mermaid
 flowchart LR
     setup["Create and seal pool<br/>100 entries"]
-    initial["Dispatch initial attempts<br/>1 job · 550 executions"]
+    initial["Dispatch initial attempts<br/>1 job · 190 executions"]
     retry["Consume retries<br/>1 job · 10 executions"]
     verify["Verify pool<br/>state and counts"]
 
@@ -166,16 +164,16 @@ sequenceDiagram
     S->>TS: Add 100 entries with policy keys
     S->>TS: Seal pool
 
-    loop Until all 550 initial attempts are held
+    loop Until all 190 initial attempts are held
         D->>TS: Lease up to 300 attempts
         TS-->>D: Return a lease
     end
-    D->>+BB: Start 100 targets with 5 or 10 runs per target
+    D->>+BB: Start 100 targets with 1 or 10 runs per target
     loop Every 60 seconds while Bazel runs
         D->>TS: Heartbeat all leases
     end
     BB-->>-D: Return Build Event Protocol results
-    D->>TS: Complete 550 attempts
+    D->>TS: Complete 190 attempts
 
     TS->>TS: Evaluate each entry policy
     TS->>TS: Create 10 retries
@@ -193,7 +191,7 @@ sequenceDiagram
 ## Bazel execution
 
 The dispatcher requests initial leases sequentially. Each request can return up
-to 300 attempts. The dispatcher does not start Bazel until it holds all 550
+to 300 attempts. The dispatcher does not start Bazel until it holds all 190
 initial attempts. This loop drains only the initial queue. Test Scheduler
 creates retries after it receives the initial results.
 
@@ -201,9 +199,9 @@ The dispatcher uses this wait point intentionally. It lets one Bazel invocation
 submit the complete initial workload. BuildBuddy can then schedule the actions
 across its workers. The lease requests do not run in parallel.
 
-The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=5`
+The initial dispatcher uses one Bazel invocation. It uses `--runs_per_test=1`
 for the `default` targets. It uses `--runs_per_test=10` for the
-`qualification` targets. It sets `--jobs=550` so that Bazel can submit all
+`qualification` targets. It sets `--jobs=190` so that Bazel can submit all
 initial actions without a small local concurrency limit.
 
 Initial runs use `--cache_test_results=yes`. This setting lets Bazel use cached
@@ -217,7 +215,7 @@ requires remote execution for all initial actions. A cold cache has no stored
 result for the requested action.
 
 The dispatcher reads the Bazel Build Event Protocol file. It matches each
-result to a Test Scheduler attempt. The dispatcher sends all 550 initial
+result to a Test Scheduler attempt. The dispatcher sends all 190 initial
 results in one completion request.
 
 Bazel numbers runs from one. Test Scheduler numbers attempts from zero. The
@@ -235,7 +233,7 @@ receive Buildkite credentials or the BuildBuddy API key.
 
 The initial dispatcher finishes before the retry consumer starts. Test
 Scheduler evaluates the 100 entries after it receives the initial results. It
-creates ten retries for the ten entries that have only four passes.
+creates ten retries for the ten entries that have no pass.
 
 The consumer waits for a lease. It can lease all ten retries in one request.
 It keeps polling until the pool is consumed.

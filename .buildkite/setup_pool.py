@@ -23,20 +23,19 @@ def main() -> None:
             "key": f"bazel-demo-{os.environ['BUILDKITE_BUILD_ID']}",
             "ttl_seconds": 3_600,
             # Each entry costs one unit. A lease has 300 units and can contain
-            # at most 300 attempts. The 550 initial attempts need at least two
-            # leases.
+            # at most 300 attempts.
             "lease": {"costs": {"custom": 300}, "max_attempts": 300},
             "attempt_policy": {
-                # Five initial passes complete an entry. One initial failure
-                # leaves room for one policy-generated retry.
+                # One pass completes an entry. One initial failure leaves room
+                # for one policy-generated retry.
                 "default": {
-                    "max_attempts": 6,
+                    "max_attempts": 2,
                     "max_failed": 2,
-                    "max_passed": 5,
-                    "min_attempts": 5,
-                    "min_passed": 5,
-                    "parallel_attempts": 5,
-                    "initial_attempts": 5,
+                    "max_passed": 1,
+                    "min_attempts": 1,
+                    "min_passed": 1,
+                    "parallel_attempts": 1,
+                    "initial_attempts": 1,
                 },
                 # Qualification requires ten passes. One failure ends the
                 # entry because max_failed is one.

@@ -13,7 +13,7 @@ from test_scheduler_client import configure_auth, metadata, request
 
 
 TARGET_COUNT = 100
-DEFAULT_INITIAL_ATTEMPTS = 5
+DEFAULT_INITIAL_ATTEMPTS = 1
 QUALIFICATION_INITIAL_ATTEMPTS = 10
 # The final ten labels use the qualification policy and ten Bazel runs.
 QUALIFICATION_START = 90
@@ -225,7 +225,7 @@ def main() -> None:
         }
         for lease in leases
     ]
-    # The current 550-attempt workload fits in one request. Keep batching so a
+    # The current 190-attempt workload fits in one request. Keep batching so a
     # larger workload still respects the 5,000-attempt API limit.
     for batch_number, batch in enumerate(completion_batches(completions), start=1):
         batch_attempt_count = sum(len(completion["attempts"]) for completion in batch)
