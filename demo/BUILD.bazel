@@ -1,8 +1,7 @@
 [
-    py_test(
+    sh_test(
         name = "target_%d" % index,
         srcs = ["test_runner.py"],
-        main = "test_runner.py",
         args = [str(index)],
         data = ["test_demo.py"],
     )

@@ -124,6 +124,16 @@ def main() -> None:
             )
             all_statuses.update(statuses)
 
+        missing_results = [
+            attempt["selector"]
+            for attempt in attempts
+            if attempt["selector"] not in all_statuses
+        ]
+        if missing_results:
+            raise RuntimeError(
+                f"Bazel produced no test result for {len(missing_results)} leased targets"
+            )
+
         completions = [
             {
                 "attempt_id": attempt["id"],
