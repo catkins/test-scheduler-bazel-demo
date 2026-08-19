@@ -3,9 +3,54 @@
 
 import json
 import os
+import subprocess
 import sys
 
 import httpx
+
+
+ORG = "catkins-test"
+SUITE = "test-scheduler-bazel-demo"
+SCHEDULER_URL = f"https://api.buildkite.com/v2/organizations/{ORG}/test-scheduler"
+AUDIENCE = f"https://buildkite.com/organizations/{ORG}/analytics/suites/{SUITE}"
+POOL_METADATA_KEY = "test-scheduler-pool-id"
+
+
+def configure_auth() -> None:
+    token = subprocess.run(
+        [
+            "buildkite-agent",
+            "oidc",
+            "request-token",
+            "--audience",
+            AUDIENCE,
+            "--lifetime",
+            "900",
+            "--claim",
+            "organization_id",
+            "--claim",
+            "pipeline_id",
+            "--claim",
+            "build_id",
+            "--claim",
+            "job_id",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    os.environ["TEST_SCHEDULER_URL"] = SCHEDULER_URL
+    os.environ["TEST_SCHEDULER_TOKEN"] = token
+    os.environ["BUILDKITE_ANALYTICS_TOKEN"] = token
+
+
+def metadata(action: str, value: str | None = None) -> str:
+    args = ["buildkite-agent", "meta-data", action, POOL_METADATA_KEY]
+    if value is not None:
+        args.append(value)
+    return subprocess.run(
+        args, check=True, text=True, capture_output=True
+    ).stdout.strip()
 
 
 def request(method: str, path: str, body: object | None = None) -> object:

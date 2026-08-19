@@ -5,12 +5,12 @@ uv = "0.12.5"
 
 [tasks.scheduler-setup]
 description = "Create and populate the Test Scheduler pool"
-run = "uv run --frozen python .buildkite/run_demo.py setup"
+run = "uv run --frozen python .buildkite/setup_pool.py"
 
 [tasks.scheduler-consume]
 description = "Lease and run Bazel targets from the Test Scheduler pool"
-run = "uv run --frozen python .buildkite/run_demo.py consume"
+run = "uv run --frozen python .buildkite/consume_pool.py"
 
 [tasks.scheduler-verify]
 description = "Verify the final Test Scheduler pool metrics"
-run = "uv run --frozen python .buildkite/run_demo.py verify"
+run = "uv run --frozen python .buildkite/verify_pool.py"

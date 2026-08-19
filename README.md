@@ -10,8 +10,9 @@ The pipeline:
 2. runs exactly two parallel Buildkite scheduler jobs, each leasing at most 300
    targets at a time;
 3. reports each target's Build Event Protocol result to Test Scheduler;
-4. leases policy-generated retries and runs them in separate Bazel invocations
-   with `--nocache_test_results`; and
+4. keeps normal Bazel test-result caching for initial attempts, then leases
+   policy-generated retries and runs them in separate Bazel invocations with
+   `--nocache_test_results`; and
 5. verifies the pool is consumed with the expected entry, attempt, and result
    metrics.
 
