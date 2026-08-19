@@ -1,0 +1,6 @@
+steps:
+  - label: ":bazel: Test Scheduler + Bazel end-to-end"
+    key: "scheduler-bazel"
+    command: ".buildkite/run-demo.sh"
+    agents:
+      queue: "hosted"

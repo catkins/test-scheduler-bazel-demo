@@ -1,0 +1,13 @@
+[
+    sh_test(
+        name = name,
+        srcs = ["test.sh"],
+        args = [kind],
+    )
+    for name, kind in [
+        ("parser_test", "pass"),
+        ("planner_test", "pass"),
+        ("executor_test", "pass"),
+        ("flaky_remote_test", "fail-first"),
+    ]
+]
