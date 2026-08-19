@@ -13,6 +13,9 @@ import httpx
 from test_scheduler_client import configure_auth, metadata, request
 
 
+INITIAL_ATTEMPTS = 5
+
+
 def read_bep(path: Path) -> dict[str, str]:
     statuses: dict[str, str] = {}
     with path.open() as events:
@@ -46,7 +49,7 @@ def run_attempts(
         f"--build_event_json_file={bep}",
     ]
     kind = "INITIAL"
-    if attempt_index > 0:
+    if attempt_index >= INITIAL_ATTEMPTS:
         args.append("--nocache_test_results")
         kind = "RETRY (--nocache_test_results enabled)"
     print(
@@ -79,7 +82,7 @@ def main() -> None:
     while empty_polls < 90:
         try:
             lease_response = request(
-                "POST", f"/pools/{pool_id}/leases", {"lease_ttl_seconds": 120}
+                "POST", f"/pools/{pool_id}/leases", {"lease_ttl_seconds": 300}
             )
         except httpx.HTTPError as error:
             print(f"Runner {worker}: lease request unavailable ({error}); retrying")
@@ -106,7 +109,9 @@ def main() -> None:
 
         empty_polls = 0
         attempts = lease["attempts"]
-        initial_count = sum(attempt["attempt_index"] == 0 for attempt in attempts)
+        initial_count = sum(
+            attempt["attempt_index"] < INITIAL_ATTEMPTS for attempt in attempts
+        )
         print(
             f"Runner {worker}: leased {len(attempts)} targets "
             f"(initial={initial_count}, retry={len(attempts) - initial_count})"

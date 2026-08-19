@@ -7,7 +7,10 @@ from test_scheduler_client import configure_auth, metadata, request
 
 
 TARGET_COUNT = 1_000
+INITIAL_ATTEMPTS = 5
 EXPECTED_FAILURES = 100
+EXPECTED_ATTEMPTS = TARGET_COUNT * INITIAL_ATTEMPTS + EXPECTED_FAILURES
+EXPECTED_PASSES = TARGET_COUNT * INITIAL_ATTEMPTS
 
 
 def main() -> None:
@@ -21,25 +24,24 @@ def main() -> None:
         "pool is consumed": metrics["pool"]["state"] == "consumed",
         "pool is drained": metrics["pool"]["drained"],
         "entry count": metrics["entries"]["total"] == TARGET_COUNT,
-        "attempt count": attempts["total"] == TARGET_COUNT + EXPECTED_FAILURES,
+        "attempt count": attempts["total"] == EXPECTED_ATTEMPTS,
         "completed count": (
-            attempts["states"]["completed"]["count"]
-            == TARGET_COUNT + EXPECTED_FAILURES
+            attempts["states"]["completed"]["count"] == EXPECTED_ATTEMPTS
         ),
         "waiting count": attempts["states"]["waiting"]["count"] == 0,
         "leased count": attempts["states"]["leased"]["count"] == 0,
-        "passed count": attempts["results"]["passed"] == TARGET_COUNT,
+        "passed count": attempts["results"]["passed"] == EXPECTED_PASSES,
         "failed count": attempts["results"]["failed"] == EXPECTED_FAILURES,
     }
     failed_checks = [name for name, passed in checks.items() if not passed]
     if failed_checks:
         raise RuntimeError(f"Pool verification failed: {', '.join(failed_checks)}")
     print(
-        f"Verified {TARGET_COUNT} initial attempts and {EXPECTED_FAILURES} "
-        "policy-generated retries"
+        f"Verified {TARGET_COUNT * INITIAL_ATTEMPTS} initial attempts and "
+        f"{EXPECTED_FAILURES} policy-generated retries"
     )
     print(
-        f"Verified final results: {TARGET_COUNT} passed attempts, "
+        f"Verified final results: {EXPECTED_PASSES} passed attempts, "
         f"{EXPECTED_FAILURES} intentional failed attempts"
     )
 

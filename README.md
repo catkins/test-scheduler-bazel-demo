@@ -10,8 +10,8 @@ The pipeline:
 2. runs exactly two parallel Buildkite scheduler jobs, each leasing at most 300
    targets at a time;
 3. reports each target's Build Event Protocol result to Test Scheduler;
-4. keeps normal Bazel test-result caching for initial attempts, then leases
-   policy-generated retries and runs them in separate Bazel invocations with
+4. runs five cacheable initial attempts per target, then leases
+   policy-generated retries in separate Bazel invocations with
    `--nocache_test_results`; and
 5. verifies the pool is consumed with the expected entry, attempt, and result
    metrics.
@@ -19,9 +19,10 @@ The pipeline:
 The pipeline uses the Buildkite mise plugin to install Bazelisk, Python, and
 uv. Each Bazel target runs a distinct pytest test through uv's virtual
 environment and uploads its result with `buildkite-test-collector`. Each test
-sleeps for 10 ms. Every tenth target intentionally fails its initial attempt
-and passes its retry. This produces 1,000 initial attempts and 100
-policy-generated retries, while keeping the workload deterministic.
+sleeps for 10 ms. Every tenth target intentionally fails its first initial
+attempt and passes its other four. The five-pass policy gives those targets one
+retry. This produces 5,000 initial attempts and 100 policy-generated retries,
+while keeping the workload deterministic.
 
 Test Engine and Test Scheduler both authenticate with the same short-lived
 Buildkite Agent OIDC token. Scheduler requests go through the small `httpx`

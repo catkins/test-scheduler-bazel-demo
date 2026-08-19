@@ -25,7 +25,7 @@ def configure_auth() -> None:
             "--audience",
             AUDIENCE,
             "--lifetime",
-            "900",
+            "1800",
             "--claim",
             "organization_id",
             "--claim",
