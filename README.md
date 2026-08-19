@@ -206,5 +206,5 @@ This command exports the uv lock data to `requirements_lock.txt`.
 ## Buildkite resources
 
 - [Pipeline](https://buildkite.com/catkins-test/test-scheduler-bazel-demo)
-- [Passing multi-policy build](https://buildkite.com/catkins-test/test-scheduler-bazel-demo/builds/23)
+- [Passing multi-policy build](https://buildkite.com/catkins-test/test-scheduler-bazel-demo/builds/26)
 - [Test Engine suite](https://buildkite.com/organizations/catkins-test/analytics/suites/test-scheduler-bazel-demo)
